@@ -147,13 +147,41 @@ update_system() {
     ok "System updated successfully"
 }
 
+# Install MySQL server with special handling
+install_mysql_server() {
+    log "Installing MySQL server..."
+    
+    # Pre-configure MySQL to avoid interactive prompts
+    export DEBIAN_FRONTEND=noninteractive
+    
+    # Install MySQL packages
+    if ! apt-get install -y mysql-server mysql-client; then
+        err "Failed to install MySQL packages"
+        
+        # Try to fix package issues
+        log "Attempting to fix MySQL installation..."
+        apt-get update
+        apt-get install -f
+        
+        # Try again
+        if ! apt-get install -y mysql-server mysql-client; then
+            die "Could not install MySQL server. Please check package repositories."
+        fi
+    fi
+    
+    # Ensure MySQL service exists
+    if ! systemctl list-unit-files | grep -q mysql.service; then
+        die "MySQL service not found after installation"
+    fi
+    
+    ok "MySQL server installed successfully"
+}
+
 # Install required packages with better error handling
 install_core_packages() {
     log "Installing core system packages..."
     
     local CORE_PACKAGES=(
-        "mysql-server"
-        "mysql-client"
         "php8.3"
         "php8.3-fpm"
         "php8.3-mysql"
@@ -249,35 +277,121 @@ install_nginx() {
     ok "Nginx installed and configured"
 }
 
+# Configure and start MySQL service
+configure_mysql_service() {
+    log "Configuring MySQL service..."
+    
+    # Ensure MySQL service is installed and configured
+    systemctl stop mysql 2>/dev/null || true
+    
+    # Start and enable MySQL service
+    systemctl enable mysql
+    systemctl start mysql
+    
+    # Wait for MySQL to be ready
+    local count=0
+    local max_attempts=30
+    
+    log "Waiting for MySQL to start..."
+    while ! mysqladmin ping --silent 2>/dev/null && [ $count -lt $max_attempts ]; do
+        sleep 2
+        ((count++))
+        echo -n "."
+    done
+    echo ""
+    
+    if [ $count -eq $max_attempts ]; then
+        err "MySQL failed to start after $max_attempts attempts"
+        
+        # Try to get more information about the failure
+        log "MySQL service status:"
+        systemctl status mysql --no-pager || true
+        
+        log "MySQL error log:"
+        tail -20 /var/log/mysql/error.log 2>/dev/null || true
+        
+        # Try to restart MySQL with more debugging
+        log "Attempting MySQL restart..."
+        systemctl restart mysql
+        
+        # Wait again
+        count=0
+        while ! mysqladmin ping --silent 2>/dev/null && [ $count -lt 15 ]; do
+            sleep 2
+            ((count++))
+            echo -n "."
+        done
+        echo ""
+        
+        if ! mysqladmin ping --silent 2>/dev/null; then
+            warn "MySQL service still not responding. Running troubleshooting..."
+            if ! troubleshoot_mysql; then
+                die "MySQL service failed to start after troubleshooting. Please check system logs and try manual installation."
+            fi
+        fi
+    fi
+    
+    ok "MySQL service is running"
+}
+
 # MySQL security and configuration
 secure_mysql_installation() {
     log "Securing MySQL installation..."
+    
+    # Ensure MySQL is running first
+    configure_mysql_service
     
     # Generate strong random passwords
     MYSQL_ROOT_PASS=$(openssl rand -base64 32 | tr -d "=+/" | cut -c1-25)
     DB_PASS=$(openssl rand -base64 24 | tr -d "=+/" | cut -c1-20)
     PMA_DB_PASS=$(openssl rand -base64 24 | tr -d "=+/" | cut -c1-20)
     
-    # Secure MySQL installation
-    mysql -e "ALTER USER 'root'@'localhost' IDENTIFIED WITH mysql_native_password BY '$MYSQL_ROOT_PASS';" || true
-    mysql -u root -p"$MYSQL_ROOT_PASS" -e "DELETE FROM mysql.user WHERE User='';" 2>/dev/null || true
-    mysql -u root -p"$MYSQL_ROOT_PASS" -e "DELETE FROM mysql.user WHERE User='root' AND Host NOT IN ('localhost', '127.0.0.1', '::1');" 2>/dev/null || true
-    mysql -u root -p"$MYSQL_ROOT_PASS" -e "DROP DATABASE IF EXISTS test;" 2>/dev/null || true
-    mysql -u root -p"$MYSQL_ROOT_PASS" -e "DELETE FROM mysql.db WHERE Db='test' OR Db='test\\_%';" 2>/dev/null || true
-    mysql -u root -p"$MYSQL_ROOT_PASS" -e "FLUSH PRIVILEGES;" 2>/dev/null || true
+    # Check if root password is already set
+    if mysql -u root -e "SELECT 1;" 2>/dev/null; then
+        log "MySQL root has no password, setting initial password..."
+        mysql -u root -e "ALTER USER 'root'@'localhost' IDENTIFIED WITH mysql_native_password BY '$MYSQL_ROOT_PASS';"
+    else
+        log "MySQL root password already set, attempting to update..."
+        # Try with empty password first, then try common default passwords
+        if mysql -u root -p"" -e "ALTER USER 'root'@'localhost' IDENTIFIED WITH mysql_native_password BY '$MYSQL_ROOT_PASS';" 2>/dev/null; then
+            log "Updated root password successfully"
+        elif mysql -u root -p"password" -e "ALTER USER 'root'@'localhost' IDENTIFIED WITH mysql_native_password BY '$MYSQL_ROOT_PASS';" 2>/dev/null; then
+            log "Updated root password successfully"
+        elif mysql -u root -p"root" -e "ALTER USER 'root'@'localhost' IDENTIFIED WITH mysql_native_password BY '$MYSQL_ROOT_PASS';" 2>/dev/null; then
+            log "Updated root password successfully"
+        else
+            warn "Could not set MySQL root password automatically. Please set it manually."
+            read -p "Enter current MySQL root password (or press Enter if none): " -s current_pass
+            echo ""
+            if [[ -n "$current_pass" ]]; then
+                mysql -u root -p"$current_pass" -e "ALTER USER 'root'@'localhost' IDENTIFIED WITH mysql_native_password BY '$MYSQL_ROOT_PASS';" || die "Failed to set MySQL root password"
+            else
+                mysql -u root -e "ALTER USER 'root'@'localhost' IDENTIFIED WITH mysql_native_password BY '$MYSQL_ROOT_PASS';" || die "Failed to set MySQL root password"
+            fi
+        fi
+    fi
+    # Secure MySQL installation (remove anonymous users, test database, etc.)
+    log "Applying MySQL security settings..."
+    mysql -u root -p"$MYSQL_ROOT_PASS" -e "DELETE FROM mysql.user WHERE User='';" 2>/dev/null || warn "Could not remove anonymous users"
+    mysql -u root -p"$MYSQL_ROOT_PASS" -e "DELETE FROM mysql.user WHERE User='root' AND Host NOT IN ('localhost', '127.0.0.1', '::1');" 2>/dev/null || warn "Could not remove remote root access"
+    mysql -u root -p"$MYSQL_ROOT_PASS" -e "DROP DATABASE IF EXISTS test;" 2>/dev/null || warn "Test database not found"
+    mysql -u root -p"$MYSQL_ROOT_PASS" -e "DELETE FROM mysql.db WHERE Db='test' OR Db='test\\_%';" 2>/dev/null || warn "Could not remove test database privileges"
+    mysql -u root -p"$MYSQL_ROOT_PASS" -e "FLUSH PRIVILEGES;" || die "Could not flush MySQL privileges"
     
     # Create databases and users
-    mysql -u root -p"$MYSQL_ROOT_PASS" -e "CREATE DATABASE IF NOT EXISTS $DB_NAME CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
-    mysql -u root -p"$MYSQL_ROOT_PASS" -e "CREATE USER IF NOT EXISTS '$DB_USER'@'localhost' IDENTIFIED BY '$DB_PASS';"
-    mysql -u root -p"$MYSQL_ROOT_PASS" -e "GRANT ALL PRIVILEGES ON $DB_NAME.* TO '$DB_USER'@'localhost';"
+    log "Creating panel database and users..."
+    mysql -u root -p"$MYSQL_ROOT_PASS" -e "CREATE DATABASE IF NOT EXISTS $DB_NAME CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;" || die "Could not create panel database"
+    mysql -u root -p"$MYSQL_ROOT_PASS" -e "CREATE USER IF NOT EXISTS '$DB_USER'@'localhost' IDENTIFIED BY '$DB_PASS';" || die "Could not create panel database user"
+    mysql -u root -p"$MYSQL_ROOT_PASS" -e "GRANT ALL PRIVILEGES ON $DB_NAME.* TO '$DB_USER'@'localhost';" || die "Could not grant privileges to panel user"
     
     # Create database user for custom Phynx if deploying it
     if [[ "$INSTALL_PMA" == "yes" ]]; then
-        mysql -u root -p"$MYSQL_ROOT_PASS" -e "CREATE USER IF NOT EXISTS '$PMA_DB_USER'@'localhost' IDENTIFIED BY '$PMA_DB_PASS';"
-        mysql -u root -p"$MYSQL_ROOT_PASS" -e "GRANT ALL PRIVILEGES ON *.* TO '$PMA_DB_USER'@'localhost' WITH GRANT OPTION;"
+        log "Creating Phynx database manager user..."
+        mysql -u root -p"$MYSQL_ROOT_PASS" -e "CREATE USER IF NOT EXISTS '$PMA_DB_USER'@'localhost' IDENTIFIED BY '$PMA_DB_PASS';" || die "Could not create Phynx database user"
+        mysql -u root -p"$MYSQL_ROOT_PASS" -e "GRANT ALL PRIVILEGES ON *.* TO '$PMA_DB_USER'@'localhost' WITH GRANT OPTION;" || die "Could not grant privileges to Phynx user"
     fi
     
-    mysql -u root -p"$MYSQL_ROOT_PASS" -e "FLUSH PRIVILEGES;"
+    mysql -u root -p"$MYSQL_ROOT_PASS" -e "FLUSH PRIVILEGES;" || die "Could not flush final MySQL privileges"
     
     # Save credentials securely
     cat > /root/.phynx_credentials << EOF
@@ -294,6 +408,73 @@ EOF
     chmod 600 /root/.phynx_credentials
     
     ok "MySQL secured and databases created"
+}
+
+# Troubleshoot MySQL installation issues
+troubleshoot_mysql() {
+    log "Troubleshooting MySQL issues..."
+    
+    echo -e "${YELLOW}MySQL Service Status:${NC}"
+    systemctl status mysql --no-pager || true
+    echo ""
+    
+    echo -e "${YELLOW}MySQL Process Check:${NC}"
+    ps aux | grep mysql | grep -v grep || echo "No MySQL processes found"
+    echo ""
+    
+    echo -e "${YELLOW}MySQL Socket File Check:${NC}"
+    if [[ -S "/var/run/mysqld/mysqld.sock" ]]; then
+        echo "✓ MySQL socket file exists"
+        ls -la /var/run/mysqld/mysqld.sock
+    else
+        echo "✗ MySQL socket file missing"
+        echo "Socket directory contents:"
+        ls -la /var/run/mysqld/ 2>/dev/null || echo "Socket directory doesn't exist"
+    fi
+    echo ""
+    
+    echo -e "${YELLOW}MySQL Configuration Check:${NC}"
+    if [[ -f "/etc/mysql/mysql.conf.d/mysqld.cnf" ]]; then
+        echo "MySQL configuration file exists"
+        grep -E "socket|port|bind-address" /etc/mysql/mysql.conf.d/mysqld.cnf 2>/dev/null || true
+    fi
+    echo ""
+    
+    echo -e "${YELLOW}MySQL Error Log (last 20 lines):${NC}"
+    tail -20 /var/log/mysql/error.log 2>/dev/null || echo "Error log not found"
+    echo ""
+    
+    echo -e "${YELLOW}Disk Space Check:${NC}"
+    df -h /var/lib/mysql 2>/dev/null || df -h /
+    echo ""
+    
+    # Attempt to fix common issues
+    echo -e "${YELLOW}Attempting common fixes:${NC}"
+    
+    # Fix permissions
+    chown -R mysql:mysql /var/lib/mysql /var/log/mysql /var/run/mysqld 2>/dev/null || true
+    
+    # Create socket directory if missing
+    if [[ ! -d "/var/run/mysqld" ]]; then
+        mkdir -p /var/run/mysqld
+        chown mysql:mysql /var/run/mysqld
+        echo "✓ Created MySQL socket directory"
+    fi
+    
+    # Try to start MySQL again
+    echo "Attempting to restart MySQL service..."
+    systemctl stop mysql 2>/dev/null || true
+    sleep 3
+    systemctl start mysql
+    sleep 5
+    
+    if systemctl is-active --quiet mysql; then
+        echo -e "${GREEN}✓ MySQL service restarted successfully${NC}"
+        return 0
+    else
+        echo -e "${RED}✗ MySQL service still not running${NC}"
+        return 1
+    fi
 }
 
 # Install panel files
@@ -1311,6 +1492,7 @@ main() {
     # Core system setup
     update_system
     install_core_packages
+    install_mysql_server
     install_web_server
     
     # Database setup

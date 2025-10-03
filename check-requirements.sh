@@ -214,8 +214,16 @@ fi
 
 if systemctl is-active --quiet mysql; then
     check_warn "MySQL is already running"
+    # Check if we can connect
+    if mysqladmin ping --silent 2>/dev/null; then
+        check_pass "MySQL is accessible"
+    else
+        check_warn "MySQL is running but not accessible"
+    fi
+elif systemctl list-unit-files | grep -q mysql.service; then
+    check_warn "MySQL is installed but not running"
 else
-    check_pass "MySQL not running (will be installed)"
+    check_pass "MySQL not installed (will be installed)"
 fi
 
 # Summary
