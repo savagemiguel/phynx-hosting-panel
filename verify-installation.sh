@@ -14,6 +14,10 @@ NC='\033[0m'
 PANEL_DIR="/var/www/phynx"
 PMA_DIR="$PANEL_DIR/phynx"
 
+# Port Configuration
+HTTP_PORT="2087"
+HTTPS_PORT="2083"
+
 print_banner() {
     clear
     echo -e "${BLUE}"
@@ -335,7 +339,8 @@ echo -e "\nIf everything looks good, access your panel at:"
 
 # Get server IP
 SERVER_IP=$(hostname -I | awk '{print $1}')
-echo -e "• ${GREEN}http://$SERVER_IP${NC} (local IP)"
+echo -e "• ${GREEN}http://$SERVER_IP:$HTTP_PORT${NC} (Panel HTTP)"  
+echo -e "• ${GREEN}https://$SERVER_IP:$HTTPS_PORT${NC} (Panel HTTPS)"
 
 # Check if domain is configured
 if [[ -f "$PANEL_DIR/.env" ]] && grep -q "PANEL_DOMAIN" "$PANEL_DIR/.env"; then
@@ -345,7 +350,7 @@ fi
 
 # phpMyAdmin access
 if [[ -d "$PMA_DIR" ]]; then
-    echo -e "• ${GREEN}http://$SERVER_IP/phynx${NC} (Phynx Database Manager)"
+    echo -e "• ${GREEN}http://$SERVER_IP:$HTTP_PORT/phynx${NC} (Phynx Database Manager)"
 fi
 
 echo -e "\n${BLUE}Next Steps:${NC}"
