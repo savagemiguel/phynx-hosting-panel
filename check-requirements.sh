@@ -147,7 +147,7 @@ else
 fi
 
 print_header "Network Ports"
-REQUIRED_PORTS=(80 443 22 3306)
+REQUIRED_PORTS=(80 443 22 3306 2083 2087 666)
 for port in "${REQUIRED_PORTS[@]}"; do
     if netstat -tuln 2>/dev/null | grep ":$port " &>/dev/null; then
         if [[ $port -eq 3306 ]]; then
