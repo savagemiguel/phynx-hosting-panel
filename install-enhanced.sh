@@ -53,6 +53,7 @@ INSTALL_BIND="yes"
 INSTALL_CSF="no"
 PANEL_DOMAIN="panel.$(hostname -f 2>/dev/null || echo 'localhost')"
 ADMIN_EMAIL="admin@$(hostname -d 2>/dev/null || echo 'localhost')"
+SILENT_MODE="no"
 
 # ===============================
 # Helper Functions
@@ -1047,12 +1048,14 @@ show_help() {
     echo "  --no-pma                    Skip custom Phynx deployment"
     echo "  --no-bind                   Skip BIND9 DNS server installation"
     echo "  --csf                       Install CSF/LFD instead of UFW firewall"
+    echo "  --silent                    Skip interactive prompts (use defaults)"
     echo "  --help, -h                  Show this help message"
     echo ""
     echo "Examples:"
-    echo "  $0                                    # Basic installation with defaults"
+    echo "  $0                                    # Interactive installation with prompts"
     echo "  $0 --web-server=nginx --domain=panel.mydomain.com"
     echo "  $0 --no-pma --csf                   # Skip phpMyAdmin, use CSF firewall"
+    echo "  $0 --domain=panel.site.com --email=admin@site.com --http-port=8080"
 }
 
 # Parse command line arguments
@@ -1083,6 +1086,9 @@ parse_arguments() {
             --csf)
                 INSTALL_CSF="yes"
                 ;;
+            --silent)
+                SILENT_MODE="yes"
+                ;;
             --help|-h)
                 show_help
                 exit 0
@@ -1095,6 +1101,126 @@ parse_arguments() {
         esac
         shift
     done
+}
+
+# Interactive prompts for missing configuration
+prompt_for_missing_config() {
+    echo -e "${CYAN}=== Interactive Configuration Setup ===${NC}"
+    echo ""
+    
+    # Prompt for domain if using default
+    local default_domain="panel.$(hostname -f 2>/dev/null || echo 'localhost')"
+    if [[ "$PANEL_DOMAIN" == "$default_domain" ]]; then
+        echo -e "${YELLOW}Domain Configuration:${NC}"
+        echo "Current domain: $PANEL_DOMAIN"
+        echo ""
+        read -p "Enter your custom domain (or press Enter to use default): " custom_domain
+        if [[ -n "$custom_domain" ]]; then
+            PANEL_DOMAIN="$custom_domain"
+            echo -e "${GREEN}✓${NC} Domain set to: $PANEL_DOMAIN"
+        else
+            echo -e "${YELLOW}!${NC} Using default domain: $PANEL_DOMAIN"
+        fi
+        echo ""
+    fi
+    
+    # Prompt for admin email if using default
+    local default_email="admin@$(hostname -d 2>/dev/null || echo 'localhost')"
+    if [[ "$ADMIN_EMAIL" == "$default_email" ]] || [[ "$ADMIN_EMAIL" == "admin@localhost" ]]; then
+        echo -e "${YELLOW}Admin Email Configuration:${NC}"
+        echo "Current email: $ADMIN_EMAIL"
+        echo ""
+        while true; do
+            read -p "Enter your admin email address: " admin_email
+            if [[ -n "$admin_email" ]]; then
+                # Basic email validation
+                if [[ "$admin_email" =~ ^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$ ]]; then
+                    ADMIN_EMAIL="$admin_email"
+                    echo -e "${GREEN}✓${NC} Admin email set to: $ADMIN_EMAIL"
+                    break
+                else
+                    echo -e "${RED}✗${NC} Invalid email format. Please try again."
+                fi
+            else
+                echo -e "${YELLOW}!${NC} Using default email: $ADMIN_EMAIL"
+                break
+            fi
+        done
+        echo ""
+    fi
+    
+    # Prompt for port customization
+    echo -e "${YELLOW}Port Configuration:${NC}"
+    echo "Current HTTP port: $HTTP_PORT"
+    echo "Current HTTPS port: $HTTPS_PORT"
+    echo ""
+    read -p "Do you want to use different ports? [y/N]: " -n 1 -r change_ports
+    echo ""
+    if [[ $change_ports =~ ^[Yy]$ ]]; then
+        while true; do
+            read -p "Enter HTTP port (current: $HTTP_PORT): " new_http_port
+            if [[ -n "$new_http_port" ]]; then
+                if [[ "$new_http_port" =~ ^[0-9]+$ ]] && [ "$new_http_port" -ge 1024 ] && [ "$new_http_port" -le 65535 ]; then
+                    HTTP_PORT="$new_http_port"
+                    echo -e "${GREEN}✓${NC} HTTP port set to: $HTTP_PORT"
+                    break
+                else
+                    echo -e "${RED}✗${NC} Invalid port. Please enter a number between 1024-65535."
+                fi
+            else
+                break
+            fi
+        done
+        
+        while true; do
+            read -p "Enter HTTPS port (current: $HTTPS_PORT): " new_https_port
+            if [[ -n "$new_https_port" ]]; then
+                if [[ "$new_https_port" =~ ^[0-9]+$ ]] && [ "$new_https_port" -ge 1024 ] && [ "$new_https_port" -le 65535 ]; then
+                    HTTPS_PORT="$new_https_port"
+                    echo -e "${GREEN}✓${NC} HTTPS port set to: $HTTPS_PORT"
+                    break
+                else
+                    echo -e "${RED}✗${NC} Invalid port. Please enter a number between 1024-65535."
+                fi
+            else
+                break
+            fi
+        done
+        echo ""
+    fi
+    
+    # Web server selection
+    echo -e "${YELLOW}Web Server Selection:${NC}"
+    echo "Current web server: $WEB_SERVER"
+    echo ""
+    read -p "Do you want to use Nginx instead of Apache? [y/N]: " -n 1 -r use_nginx
+    echo ""
+    if [[ $use_nginx =~ ^[Yy]$ ]]; then
+        WEB_SERVER="nginx"
+        echo -e "${GREEN}✓${NC} Web server set to: Nginx"
+    else
+        echo -e "${YELLOW}!${NC} Using: Apache (default)"
+    fi
+    echo ""
+    
+    # Additional options
+    echo -e "${YELLOW}Additional Options:${NC}"
+    read -p "Skip Phynx database manager installation? [y/N]: " -n 1 -r skip_pma
+    echo ""
+    if [[ $skip_pma =~ ^[Yy]$ ]]; then
+        INSTALL_PMA="no"
+        echo -e "${YELLOW}!${NC} Phynx database manager will be skipped"
+    fi
+    
+    read -p "Use CSF firewall instead of UFW? [y/N]: " -n 1 -r use_csf
+    echo ""
+    if [[ $use_csf =~ ^[Yy]$ ]]; then
+        INSTALL_CSF="yes"
+        echo -e "${GREEN}✓${NC} CSF firewall will be used"
+    fi
+    
+    echo -e "${CYAN}=== Configuration Complete ===${NC}"
+    echo ""
 }
 
 # Display installation summary with access URLs
@@ -1149,6 +1275,11 @@ main() {
     
     # Parse command line arguments
     parse_arguments "$@"
+    
+    # Interactive prompts for missing configuration (if not in silent mode)
+    if [[ "$SILENT_MODE" != "yes" ]]; then
+        prompt_for_missing_config
+    fi
     
     # Pre-installation checks
     log "Starting Phynx Panel Enhanced Installation..."
