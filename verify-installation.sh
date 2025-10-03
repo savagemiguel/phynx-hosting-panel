@@ -71,11 +71,21 @@ else
     WEB_SERVER="none"
 fi
 
-# Check PHP-FPM
-if systemctl is-active --quiet php8.1-fpm; then
-    check_ok "PHP 8.1 FPM is running"
-else
-    check_fail "PHP 8.1 FPM is not running"
+# Check PHP-FPM services
+PHP_SERVICES=("php8.1-fpm" "php8.2-fpm" "php8.3-fpm" "php8.4-fpm")
+PHP_RUNNING=false
+
+for service in "${PHP_SERVICES[@]}"; do
+    if systemctl is-active --quiet "$service"; then
+        VERSION=${service%%-*}
+        VERSION=${VERSION#php}
+        check_ok "PHP $VERSION FPM is running"
+        PHP_RUNNING=true
+    fi
+done
+
+if [[ "$PHP_RUNNING" == false ]]; then
+    check_fail "No PHP-FPM services are running"
 fi
 
 # Check Fail2Ban
@@ -251,17 +261,22 @@ fi
 
 print_section "PHP Configuration"
 
-# Check PHP version and modules
-PHP_VERSION=$(php8.1 -v | head -1 | cut -d' ' -f2)
-check_ok "PHP version: $PHP_VERSION"
-
-# Check required PHP modules
-REQUIRED_MODULES=("mysql" "mbstring" "xml" "zip" "curl" "gd" "json")
-for module in "${REQUIRED_MODULES[@]}"; do
-    if php8.1 -m | grep -q "^$module$"; then
-        check_ok "PHP module '$module' loaded"
-    else
-        check_fail "PHP module '$module' not loaded"
+# Check PHP versions and modules
+PHP_VERSIONS=("8.1" "8.2" "8.3" "8.4")
+for version in "${PHP_VERSIONS[@]}"; do
+    if command -v "php$version" &> /dev/null; then
+        PHP_VERSION=$(php$version -v | head -1 | cut -d' ' -f2)
+        check_ok "PHP $version installed: $PHP_VERSION"
+        
+        # Check required PHP modules for this version
+        REQUIRED_MODULES=("mysql" "mbstring" "xml" "zip" "curl" "gd" "json")
+        for module in "${REQUIRED_MODULES[@]}"; do
+            if php$version -m | grep -q "^$module$"; then
+                check_ok "PHP $version module '$module' loaded"
+            else
+                check_warn "PHP $version module '$module' not loaded"
+            fi
+        done
     fi
 done
 
@@ -292,7 +307,8 @@ print_section "Quick Fixes for Common Issues"
 echo -e "\nIf you encountered any ${RED}failures${NC} above, try these fixes:"
 echo ""
 echo "🔧 Service Issues:"
-echo "  sudo systemctl restart mysql apache2 php8.1-fpm"
+echo "  sudo systemctl restart mysql apache2"
+echo "  sudo systemctl restart php8.1-fpm php8.2-fpm php8.3-fpm php8.4-fpm"
 echo ""
 echo "🔧 Permission Issues:"
 echo "  sudo chown -R www-data:www-data $PANEL_DIR"

@@ -97,13 +97,13 @@ print_header "PHP Requirements"
 # Check if PHP is installed and version
 if command -v php &> /dev/null; then
     PHP_VERSION=$(php -v | head -n 1 | cut -d ' ' -f 2 | cut -d '.' -f 1,2)
-    if [[ "$PHP_VERSION" == "8.1" ]] || [[ "$PHP_VERSION" == "8.2" ]] || [[ "$PHP_VERSION" == "8.3" ]]; then
+    if [[ "$PHP_VERSION" == "8.1" ]] || [[ "$PHP_VERSION" == "8.2" ]] || [[ "$PHP_VERSION" == "8.3" ]] || [[ "$PHP_VERSION" == "8.4" ]]; then
         check_pass "PHP $PHP_VERSION installed (compatible)"
     else
-        check_warn "PHP $PHP_VERSION installed (will install PHP 8.1/8.2)"
+        check_warn "PHP $PHP_VERSION installed (will install PHP 8.1/8.2/8.3/8.4)"
     fi
 else
-    check_pass "PHP not installed (will install PHP 8.1 and 8.2)"
+    check_pass "PHP not installed (will install PHP 8.1, 8.2, 8.3, and 8.4)"
 fi
 
 print_header "Security Checks"
@@ -239,7 +239,7 @@ if [[ $FAIL_COUNT -eq 0 ]]; then
     echo "  --no-pma                    # Skip Phynx database manager"
     echo "  --csf                       # Use CSF firewall instead of UFW"
     echo "  --no-docker                 # Skip Docker installation"
-    echo "  --php-version=8.2           # Specify PHP version (8.1 or 8.2)"
+    echo "  --php-version=8.4           # Specify PHP version (8.1, 8.2, 8.3, or 8.4)"
     echo ""
     echo "Example:"
     echo "  sudo ./install-enhanced.sh --web-server=nginx --domain=panel.mysite.com"

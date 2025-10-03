@@ -177,6 +177,34 @@ install_core_packages() {
         "php8.2-soap"
         "php8.2-intl"
         "php8.2-bcmath"
+        "php8.3"
+        "php8.3-fpm"
+        "php8.3-mysql"
+        "php8.3-mbstring"
+        "php8.3-xml"
+        "php8.3-zip"
+        "php8.3-curl"
+        "php8.3-gd"
+        "php8.3-opcache"
+        "php8.3-readline"
+        "php8.3-soap"
+        "php8.3-intl"
+        "php8.3-bcmath"
+        "php8.3-ssh2"
+        "php8.4"
+        "php8.4-fpm"
+        "php8.4-mysql"
+        "php8.4-mbstring"
+        "php8.4-xml"
+        "php8.4-zip"
+        "php8.4-curl"
+        "php8.4-gd"
+        "php8.4-opcache"
+        "php8.4-readline"
+        "php8.4-soap"
+        "php8.4-intl"
+        "php8.4-bcmath"
+        "php8.4-ssh2"
         "unzip"
         "git"
         "cron"
@@ -374,11 +402,25 @@ configure_php() {
         configure_php_ini "8.2"
     fi
     
+    # Configure PHP 8.3
+    if [[ -f "/etc/php/8.3/fpm/php.ini" ]]; then
+        configure_php_ini "8.3"
+    fi
+    
+    # Configure PHP 8.4
+    if [[ -f "/etc/php/8.4/fpm/php.ini" ]]; then
+        configure_php_ini "8.4"
+    fi
+    
     # Restart PHP-FPM services
     systemctl restart php8.1-fpm 2>/dev/null || true
     systemctl restart php8.2-fpm 2>/dev/null || true
+    systemctl restart php8.3-fpm 2>/dev/null || true
+    systemctl restart php8.4-fpm 2>/dev/null || true
     systemctl enable php8.1-fpm 2>/dev/null || true
     systemctl enable php8.2-fpm 2>/dev/null || true
+    systemctl enable php8.3-fpm 2>/dev/null || true
+    systemctl enable php8.4-fpm 2>/dev/null || true
     
     ok "PHP configured successfully"
 }
