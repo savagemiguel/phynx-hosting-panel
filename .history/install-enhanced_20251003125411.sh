@@ -1,0 +1,1126 @@
+#!/bin/bash
+
+# Phynx Hosting Panel Enhanced Installation Script
+# Version: 2.0
+# Description: Enhanced installer with Ubuntu 22+ checking and custom PMA deployment
+# Author: Phynx Team
+
+set -e  # Exit on any error
+
+# ===============================
+# Configuration and Variables
+# ===============================
+
+# Colors for output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+PURPLE='\033[0;35m'
+CYAN='\033[0;36m'
+NC='\033[0m' # No Color
+
+# Panel Configuration
+PANEL_NAME="phynx"
+PANEL_DISPLAY_NAME="Phynx Hosting Panel"
+PANEL_VERSION="2.0"
+PANEL_DIR="/var/www/$PANEL_NAME"
+PMA_DIR="$PANEL_DIR/pma"
+LOG_FILE="/var/log/phynx-install.log"
+ENV_FILE="$PANEL_DIR/.env"
+
+# Database Configuration
+DB_NAME="phynx_panel"
+DB_USER="phynx_user"
+PMA_DB_USER="pma_user"
+
+# Web Server Configuration
+APACHE_SITE="/etc/apache2/sites-available/$PANEL_NAME.conf"
+NGINX_SITE="/etc/nginx/sites-available/$PANEL_NAME"
+
+# DNS and SSL
+DNS_ZONE_PATH="/var/lib/bind/zones"
+CERTBOT_BIN="/usr/bin/certbot"
+
+# Default values (can be overridden with command line arguments)
+WEB_SERVER="apache"  # or nginx
+INSTALL_PMA="no"
+INSTALL_BIND="yes"
+INSTALL_CSF="no"
+PANEL_DOMAIN="panel.$(hostname -f 2>/dev/null || echo 'localhost')"
+ADMIN_EMAIL="admin@$(hostname -d 2>/dev/null || echo 'localhost')"
+
+# ===============================
+# Helper Functions
+# ===============================
+
+print_banner() {
+    clear
+    echo -e "${BLUE}"
+    echo "╔════════════════════════════════════════════════════════════════════════════════╗"
+    echo "║                        ${PANEL_DISPLAY_NAME} Installer v${PANEL_VERSION}                        ║"
+    echo "║                                                                                ║"
+    echo "║  Enhanced installation script with custom PMA deployment                     ║"
+    echo "║  Supports Ubuntu 22.04+ with comprehensive security features                  ║"
+    echo "╚════════════════════════════════════════════════════════════════════════════════╝"
+    echo -e "${NC}\n"
+}
+
+log() { echo -e "${BLUE}[INFO]${NC} $*" | tee -a "$LOG_FILE"; }
+ok() { echo -e "${GREEN}[OK]${NC} $*" | tee -a "$LOG_FILE"; }
+warn() { echo -e "${YELLOW}[WARN]${NC} $*" | tee -a "$LOG_FILE"; }
+err() { echo -e "${RED}[ERROR]${NC} $*" | tee -a "$LOG_FILE"; }
+die() { err "$*"; exit 1; }
+
+# Function to check if running as root
+require_root() {
+    [[ $EUID -eq 0 ]] || die "This script must be run as root. Use: sudo $0"
+}
+
+# Enhanced Ubuntu version checking
+check_ubuntu_version() {
+    log "Checking Ubuntu version and compatibility..."
+    
+    # Check if lsb_release is available
+    if ! command -v lsb_release &> /dev/null; then
+        # Fallback to /etc/os-release
+        if [[ -f /etc/os-release ]]; then
+            source /etc/os-release
+            OS_NAME="$NAME"
+            OS_VERSION="$VERSION_ID"
+        else
+            die "Cannot determine OS version. lsb_release and /etc/os-release not available."
+        fi
+    else
+        OS_NAME=$(lsb_release -si)
+        OS_VERSION=$(lsb_release -sr)
+    fi
+    
+    # Check if it's Ubuntu
+    if [[ "$OS_NAME" != "Ubuntu" ]]; then
+        die "This installer only supports Ubuntu. Detected: $OS_NAME"
+    fi
+    
+    # Extract major version number
+    MAJOR_VERSION=${OS_VERSION%%.*}
+    
+    # Check minimum version requirement (Ubuntu 22.04)
+    if [[ $MAJOR_VERSION -lt 22 ]]; then
+        die "Ubuntu 22.04 or higher is required. Detected: Ubuntu $OS_VERSION"
+    fi
+    
+    # Special check for development versions
+    if [[ $MAJOR_VERSION -gt 24 ]]; then
+        warn "Ubuntu $OS_VERSION detected. This installer was tested up to Ubuntu 24.04."
+        warn "Proceeding anyway, but some packages might not be available."
+        read -p "Continue? [y/N]: " -n 1 -r
+        echo
+        if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+            exit 1
+        fi
+    fi
+    
+    ok "Ubuntu $OS_VERSION detected and compatible!"
+    echo "  OS: $OS_NAME $OS_VERSION" >> "$LOG_FILE"
+}
+
+# System update with progress
+update_system() {
+    log "Updating system package lists and upgrading existing packages..."
+    
+    export DEBIAN_FRONTEND=noninteractive
+    
+    # Update package lists
+    apt-get update -y || die "Failed to update package lists"
+    
+    # Upgrade existing packages
+    apt-get upgrade -y || warn "Some packages failed to upgrade"
+    
+    # Install essential tools if not present
+    apt-get install -y software-properties-common apt-transport-https ca-certificates curl wget gnupg lsb-release bc
+    
+    ok "System updated successfully"
+}
+
+# Install required packages with better error handling
+install_core_packages() {
+    log "Installing core system packages..."
+    
+    local CORE_PACKAGES=(
+        "mysql-server"
+        "mysql-client"
+        "php8.1"
+        "php8.1-fpm"
+        "php8.1-mysql"
+        "php8.1-mbstring"
+        "php8.1-xml"
+        "php8.1-zip"
+        "php8.1-curl"
+        "php8.1-gd"
+        "php8.1-json"
+        "php8.1-opcache"
+        "php8.1-readline"
+        "php8.1-soap"
+        "php8.1-intl"
+        "php8.1-bcmath"
+        "php8.1-xmlrpc"
+        "php8.2"
+        "php8.2-fpm"
+        "php8.2-mysql"
+        "php8.2-mbstring"
+        "php8.2-xml"
+        "php8.2-zip"
+        "php8.2-curl"
+        "php8.2-gd"
+        "php8.2-opcache"
+        "php8.2-readline"
+        "php8.2-soap"
+        "php8.2-intl"
+        "php8.2-bcmath"
+        "unzip"
+        "git"
+        "cron"
+        "certbot"
+        "ufw"
+        "fail2ban"
+        "htop"
+        "nano"
+        "vim"
+    )
+    
+    # Install packages with retry mechanism
+    for package in "${CORE_PACKAGES[@]}"; do
+        log "Installing $package..."
+        if ! apt-get install -y "$package"; then
+            warn "$package installation failed, retrying..."
+            if ! apt-get install -y "$package"; then
+                err "Failed to install $package after retry"
+                read -p "Continue without $package? [y/N]: " -n 1 -r
+                echo
+                [[ $REPLY =~ ^[Yy]$ ]] || die "Installation aborted due to package failure"
+            fi
+        fi
+    done
+    
+    ok "Core packages installed successfully"
+}
+
+# Install web server (Apache or Nginx)
+install_web_server() {
+    if [[ "$WEB_SERVER" == "nginx" ]]; then
+        install_nginx
+    else
+        install_apache
+    fi
+}
+
+install_apache() {
+    log "Installing and configuring Apache2..."
+    
+    apt-get install -y apache2 apache2-utils
+    
+    # Enable required modules
+    a2enmod rewrite ssl proxy proxy_fcgi setenvif headers
+    
+    # Configure Apache for PHP-FPM
+    systemctl enable apache2
+    systemctl start apache2
+    
+    ok "Apache2 installed and configured"
+}
+
+install_nginx() {
+    log "Installing and configuring Nginx..."
+    
+    apt-get install -y nginx
+    
+    systemctl enable nginx
+    systemctl start nginx
+    
+    ok "Nginx installed and configured"
+}
+
+# MySQL security and configuration
+secure_mysql_installation() {
+    log "Securing MySQL installation..."
+    
+    # Generate strong random passwords
+    MYSQL_ROOT_PASS=$(openssl rand -base64 32 | tr -d "=+/" | cut -c1-25)
+    DB_PASS=$(openssl rand -base64 24 | tr -d "=+/" | cut -c1-20)
+    PMA_DB_PASS=$(openssl rand -base64 24 | tr -d "=+/" | cut -c1-20)
+    
+    # Secure MySQL installation
+    mysql -e "ALTER USER 'root'@'localhost' IDENTIFIED WITH mysql_native_password BY '$MYSQL_ROOT_PASS';" || true
+    mysql -u root -p"$MYSQL_ROOT_PASS" -e "DELETE FROM mysql.user WHERE User='';" 2>/dev/null || true
+    mysql -u root -p"$MYSQL_ROOT_PASS" -e "DELETE FROM mysql.user WHERE User='root' AND Host NOT IN ('localhost', '127.0.0.1', '::1');" 2>/dev/null || true
+    mysql -u root -p"$MYSQL_ROOT_PASS" -e "DROP DATABASE IF EXISTS test;" 2>/dev/null || true
+    mysql -u root -p"$MYSQL_ROOT_PASS" -e "DELETE FROM mysql.db WHERE Db='test' OR Db='test\\_%';" 2>/dev/null || true
+    mysql -u root -p"$MYSQL_ROOT_PASS" -e "FLUSH PRIVILEGES;" 2>/dev/null || true
+    
+    # Create databases and users
+    mysql -u root -p"$MYSQL_ROOT_PASS" -e "CREATE DATABASE IF NOT EXISTS $DB_NAME CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
+    mysql -u root -p"$MYSQL_ROOT_PASS" -e "CREATE USER IF NOT EXISTS '$DB_USER'@'localhost' IDENTIFIED BY '$DB_PASS';"
+    mysql -u root -p"$MYSQL_ROOT_PASS" -e "GRANT ALL PRIVILEGES ON $DB_NAME.* TO '$DB_USER'@'localhost';"
+    
+    # Create database user for custom PMA if deploying it
+    if [[ "$INSTALL_PMA" == "yes" ]]; then
+        mysql -u root -p"$MYSQL_ROOT_PASS" -e "CREATE USER IF NOT EXISTS '$PMA_DB_USER'@'localhost' IDENTIFIED BY '$PMA_DB_PASS';"
+        mysql -u root -p"$MYSQL_ROOT_PASS" -e "GRANT ALL PRIVILEGES ON *.* TO '$PMA_DB_USER'@'localhost' WITH GRANT OPTION;"
+    fi
+    
+    mysql -u root -p"$MYSQL_ROOT_PASS" -e "FLUSH PRIVILEGES;"
+    
+    # Save credentials securely
+    cat > /root/.phynx_credentials << EOF
+# Phynx Panel Database Credentials
+# Generated on: $(date)
+MYSQL_ROOT_PASSWORD="$MYSQL_ROOT_PASS"
+DB_NAME="$DB_NAME"
+DB_USER="$DB_USER"
+DB_PASSWORD="$DB_PASS"
+PMA_DB_USER="$PMA_DB_USER"
+PMA_DB_PASSWORD="$PMA_DB_PASS"
+EOF
+    
+    chmod 600 /root/.phynx_credentials
+    
+    ok "MySQL secured and databases created"
+}
+
+# Install panel files
+install_panel_files() {
+    log "Installing panel files to $PANEL_DIR..."
+    
+    # Create panel directory
+    mkdir -p "$PANEL_DIR"
+    
+    # Check if we're running from panel directory
+    if [[ -f "index.php" && -d "admin" ]]; then
+        log "Copying panel files from current directory..."
+        
+        # Copy all files except installer
+        rsync -av --exclude='install-enhanced.sh' --exclude='.git' --exclude='*.log' . "$PANEL_DIR/"
+        
+        # Create necessary directories
+        mkdir -p "$PANEL_DIR"/{logs,uploads,tmp,backups}
+        
+        # Set proper ownership and permissions
+        chown -R www-data:www-data "$PANEL_DIR"
+        find "$PANEL_DIR" -type d -exec chmod 755 {} \\;
+        find "$PANEL_DIR" -type f -exec chmod 644 {} \\;
+        
+        # Make writable directories
+        chmod 775 "$PANEL_DIR"/{logs,uploads,tmp,backups}
+        
+        ok "Panel files installed successfully"
+    else
+        die "Panel source files not found. Please run this script from the panel root directory."
+    fi
+}
+
+# Deploy and configure custom PMA
+deploy_custom_pma() {
+    if [[ "$INSTALL_PMA" != "yes" ]]; then
+        log "Skipping custom PMA deployment (disabled)"
+        return 0
+    fi
+    
+    log "Deploying custom PMA..."
+    
+    if [[ -d "pma" ]]; then
+        # Copy your custom PMA files
+        cp -r pma "$PMA_DIR"
+        
+        # Set proper ownership and permissions
+        chown -R www-data:www-data "$PMA_DIR"
+        find "$PMA_DIR" -type d -exec chmod 755 {} \\;
+        find "$PMA_DIR" -type f -exec chmod 644 {} \\;
+        
+        # Create necessary directories for PMA
+        mkdir -p "$PMA_DIR"/{tmp,uploads,save,upload}
+        chown -R www-data:www-data "$PMA_DIR"/{tmp,uploads,save,upload}
+        chmod 777 "$PMA_DIR"/{tmp,uploads,save,upload}
+        
+        # Configure your custom PMA if config template exists
+        if [[ -f "$PMA_DIR/config.sample.php" ]]; then
+            source /root/.phynx_credentials
+            
+            # Create PMA config from template with database credentials
+            sed "s/{{PMA_DB_USER}}/$PMA_DB_USER/g; s/{{PMA_DB_PASSWORD}}/$PMA_DB_PASS/g" \\
+                "$PMA_DIR/config.sample.php" > "$PMA_DIR/config.inc.php"
+            
+            chown www-data:www-data "$PMA_DIR/config.inc.php"
+            chmod 644 "$PMA_DIR/config.inc.php"
+        fi
+        
+        ok "Custom PMA deployed at $PMA_DIR"
+    else
+        warn "Custom PMA directory 'pma' not found. Skipping deployment."
+        INSTALL_PMA="no"
+    fi
+}
+
+# Configure PHP for optimal performance
+configure_php() {
+    log "Configuring PHP for production use..."
+    
+    # Configure PHP 8.1
+    if [[ -f "/etc/php/8.1/fpm/php.ini" ]]; then
+        configure_php_ini "8.1"
+    fi
+    
+    # Configure PHP 8.2
+    if [[ -f "/etc/php/8.2/fpm/php.ini" ]]; then
+        configure_php_ini "8.2"
+    fi
+    
+    # Restart PHP-FPM services
+    systemctl restart php8.1-fpm 2>/dev/null || true
+    systemctl restart php8.2-fpm 2>/dev/null || true
+    systemctl enable php8.1-fpm 2>/dev/null || true
+    systemctl enable php8.2-fpm 2>/dev/null || true
+    
+    ok "PHP configured successfully"
+}
+
+configure_php_ini() {
+    local PHP_VERSION="$1"
+    local PHP_INI="/etc/php/$PHP_VERSION/fpm/php.ini"
+    
+    log "Configuring PHP $PHP_VERSION..."
+    
+    # Backup original
+    cp "$PHP_INI" "$PHP_INI.backup-$(date +%Y%m%d)"
+    
+    # Apply optimizations
+    sed -i 's/^memory_limit = .*/memory_limit = 256M/' "$PHP_INI"
+    sed -i 's/^upload_max_filesize = .*/upload_max_filesize = 100M/' "$PHP_INI"
+    sed -i 's/^post_max_size = .*/post_max_size = 100M/' "$PHP_INI"
+    sed -i 's/^max_execution_time = .*/max_execution_time = 300/' "$PHP_INI"
+    sed -i 's/^max_input_vars = .*/max_input_vars = 3000/' "$PHP_INI"
+    sed -i 's/^;date.timezone.*/date.timezone = UTC/' "$PHP_INI"
+    sed -i 's/^;cgi.fix_pathinfo=1/cgi.fix_pathinfo=0/' "$PHP_INI"
+    
+    # Security settings
+    sed -i 's/^expose_php = .*/expose_php = Off/' "$PHP_INI"
+    sed -i 's/^allow_url_fopen = .*/allow_url_fopen = Off/' "$PHP_INI"
+    sed -i 's/^;session.cookie_httponly.*/session.cookie_httponly = 1/' "$PHP_INI"
+    sed -i 's/^;session.cookie_secure.*/session.cookie_secure = 1/' "$PHP_INI"
+}
+
+# Create web server configuration
+configure_web_server() {
+    if [[ "$WEB_SERVER" == "nginx" ]]; then
+        configure_nginx_vhost
+    else
+        configure_apache_vhost
+    fi
+}
+
+configure_apache_vhost() {
+    log "Creating Apache virtual host configuration..."
+    
+    cat > "$APACHE_SITE" << EOF
+<VirtualHost *:80>
+    ServerName $PANEL_DOMAIN
+    DocumentRoot $PANEL_DIR
+    
+    # Security headers
+    Header always set X-Frame-Options "SAMEORIGIN"
+    Header always set X-XSS-Protection "1; mode=block"
+    Header always set X-Content-Type-Options "nosniff"
+    Header always set Referrer-Policy "strict-origin-when-cross-origin"
+    Header always set Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'"
+    
+    # Main directory
+    <Directory $PANEL_DIR>
+        Options -Indexes +FollowSymLinks
+        AllowOverride All
+        Require all granted
+        
+        # PHP-FPM configuration
+        <FilesMatch \\.php\$>
+            SetHandler "proxy:unix:/run/php/php8.1-fpm.sock|fcgi://localhost/"
+        </FilesMatch>
+    </Directory>
+    
+    # Custom phpMyAdmin location
+    Alias /pma "$PMA_DIR"
+    <Directory "$PMA_DIR">
+        Options -Indexes +FollowSymLinks
+        AllowOverride All
+        Require all granted
+        
+        <FilesMatch \\.php\$>
+            SetHandler "proxy:unix:/run/php/php8.1-fpm.sock|fcgi://localhost/"
+        </FilesMatch>
+    </Directory>
+    
+    # Deny access to sensitive files
+    <Files "config.php">
+        Require all denied
+    </Files>
+    <Files ".env">
+        Require all denied
+    </Files>
+    <FilesMatch "^\.">
+        Require all denied
+    </FilesMatch>
+    
+    # Logging
+    ErrorLog \${APACHE_LOG_DIR}/${PANEL_NAME}_error.log
+    CustomLog \${APACHE_LOG_DIR}/${PANEL_NAME}_access.log combined
+</VirtualHost>
+
+# SSL VirtualHost (will be configured by Certbot)
+<IfModule mod_ssl.c>
+<VirtualHost *:443>
+    ServerName $PANEL_DOMAIN
+    DocumentRoot $PANEL_DIR
+    
+    # SSL Configuration (will be managed by Certbot)
+    # SSLEngine on
+    # Include /etc/letsencrypt/options-ssl-apache.conf
+    
+    # Same configuration as port 80
+    Include /etc/apache2/sites-available/${PANEL_NAME}.conf
+</VirtualHost>
+</IfModule>
+EOF
+
+    # Enable site and required modules
+    a2ensite "$PANEL_NAME"
+    a2dissite 000-default 2>/dev/null || true
+    systemctl reload apache2
+    
+    ok "Apache virtual host configured"
+}
+
+configure_nginx_vhost() {
+    log "Creating Nginx server block configuration..."
+    
+    cat > "$NGINX_SITE" << EOF
+server {
+    listen 80;
+    server_name $PANEL_DOMAIN;
+    root $PANEL_DIR;
+    index index.php index.html;
+    
+    # Security headers
+    add_header X-Frame-Options "SAMEORIGIN" always;
+    add_header X-XSS-Protection "1; mode=block" always;
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+    
+    # Main location
+    location / {
+        try_files \$uri \$uri/ /index.php?\$query_string;
+    }
+    
+    # Custom phpMyAdmin
+    location /pma {
+        alias $PMA_DIR;
+        try_files \$uri \$uri/ /pma/index.php?\$query_string;
+    }
+    
+    location ~ /pma/.*\\.php\$ {
+        fastcgi_pass unix:/run/php/php8.1-fpm.sock;
+        fastcgi_index index.php;
+        fastcgi_param SCRIPT_FILENAME $PMA_DIR\$fastcgi_script_name;
+        include fastcgi_params;
+    }
+    
+    # PHP processing
+    location ~ \\.php\$ {
+        try_files \$uri =404;
+        fastcgi_split_path_info ^(.+\\.php)(/.+)\$;
+        fastcgi_pass unix:/run/php/php8.1-fpm.sock;
+        fastcgi_index index.php;
+        fastcgi_param SCRIPT_FILENAME \$realpath_root\$fastcgi_script_name;
+        include fastcgi_params;
+    }
+    
+    # Deny access to sensitive files
+    location ~ /\\.ht { deny all; }
+    location ~ /\\.env { deny all; }
+    location ~ /config\\.php { deny all; }
+    
+    # Static files optimization
+    location ~* \\.(css|js|png|jpg|jpeg|gif|ico|svg|woff|woff2|ttf|eot)\$ {
+        expires 1y;
+        add_header Cache-Control "public, immutable";
+        access_log off;
+    }
+}
+EOF
+
+    # Enable site
+    ln -sf "$NGINX_SITE" /etc/nginx/sites-enabled/
+    rm -f /etc/nginx/sites-enabled/default
+    nginx -t && systemctl reload nginx
+    
+    ok "Nginx server block configured"
+}
+
+# Create environment configuration
+create_environment_config() {
+    log "Creating environment configuration..."
+    
+    source /root/.phynx_credentials
+    
+    cat > "$ENV_FILE" << EOF
+# Phynx Panel Environment Configuration
+# Generated on: $(date)
+
+# Database Configuration
+DB_HOST=localhost
+DB_NAME=$DB_NAME
+DB_USER=$DB_USER
+DB_PASSWORD=$DB_PASS
+
+# Panel Configuration
+PANEL_NAME=$PANEL_DISPLAY_NAME
+PANEL_URL=http://$PANEL_DOMAIN
+PANEL_DOMAIN=$PANEL_DOMAIN
+ADMIN_EMAIL=$ADMIN_EMAIL
+
+# Security
+SECRET_KEY=$(openssl rand -base64 64 | tr -d "=+/" | cut -c1-64)
+JWT_SECRET=$(openssl rand -base64 32)
+
+# phpMyAdmin Configuration
+PMA_ENABLED=$INSTALL_PMA
+PMA_PATH=/pma
+PMA_DB_USER=$PMA_DB_USER
+PMA_DB_PASSWORD=$PMA_DB_PASS
+
+# Paths
+PANEL_ROOT=$PANEL_DIR
+UPLOADS_PATH=$PANEL_DIR/uploads
+LOGS_PATH=$PANEL_DIR/logs
+BACKUPS_PATH=$PANEL_DIR/backups
+
+# Server Configuration
+WEB_SERVER=$WEB_SERVER
+PHP_VERSION=8.1
+BIND_ENABLED=$INSTALL_BIND
+DNS_ZONE_PATH=$DNS_ZONE_PATH
+
+# Development/Production
+APP_ENV=production
+DEBUG_MODE=false
+LOG_LEVEL=info
+
+# SSL/HTTPS
+FORCE_HTTPS=false
+SSL_ENABLED=false
+
+# Backup Configuration
+AUTO_BACKUP=true
+BACKUP_RETENTION_DAYS=30
+
+# Security Features
+FAIL2BAN_ENABLED=true
+FIREWALL_ENABLED=true
+CSF_ENABLED=$INSTALL_CSF
+EOF
+
+    chown www-data:www-data "$ENV_FILE"
+    chmod 640 "$ENV_FILE"
+    
+    ok "Environment configuration created"
+}
+
+# Install BIND9 for DNS management (optional)
+install_bind9() {
+    if [[ "$INSTALL_BIND" != "yes" ]]; then
+        log "Skipping BIND9 installation (disabled)"
+        return 0
+    fi
+    
+    log "Installing BIND9 for DNS management..."
+    
+    apt-get install -y bind9 bind9utils bind9-doc
+    
+    # Create zones directory
+    mkdir -p "$DNS_ZONE_PATH"
+    chown bind:bind "$DNS_ZONE_PATH"
+    chmod 755 "$DNS_ZONE_PATH"
+    
+    # Basic BIND configuration
+    cat > /etc/bind/named.conf.local << EOF
+//
+// Do any local configuration here
+//
+
+// Consider adding the 1918 zones here, if they are not used in your
+// organization
+//include "/etc/bind/zones.rfc1918";
+
+// Phynx Panel managed zones will be included here
+include "$DNS_ZONE_PATH/phynx-zones.conf";
+EOF
+
+    # Create empty zones configuration
+    touch "$DNS_ZONE_PATH/phynx-zones.conf"
+    chown bind:bind "$DNS_ZONE_PATH/phynx-zones.conf"
+    
+    systemctl enable bind9
+    systemctl start bind9
+    
+    ok "BIND9 installed and configured"
+}
+
+# Configure firewall with UFW or CSF
+configure_firewall() {
+    if [[ "$INSTALL_CSF" == "yes" ]]; then
+        install_csf_firewall
+    else
+        configure_ufw_firewall
+    fi
+}
+
+configure_ufw_firewall() {
+    log "Configuring UFW firewall..."
+    
+    # Reset to defaults
+    ufw --force reset
+    
+    # Set default policies
+    ufw default deny incoming
+    ufw default allow outgoing
+    
+    # Allow essential services
+    ufw allow ssh
+    ufw allow 80/tcp
+    ufw allow 443/tcp
+    
+    # Allow DNS if BIND is installed
+    if [[ "$INSTALL_BIND" == "yes" ]]; then
+        ufw allow 53
+    fi
+    
+    # Enable firewall
+    ufw --force enable
+    
+    ok "UFW firewall configured and enabled"
+}
+
+install_csf_firewall() {
+    log "Installing and configuring CSF/LFD firewall..."
+    
+    # Download and install CSF
+    cd /tmp
+    wget https://download.configserver.com/csf.tgz
+    tar -xzf csf.tgz
+    cd csf
+    sh install.sh
+    
+    # Basic CSF configuration
+    sed -i 's/TESTING = "1"/TESTING = "0"/' /etc/csf/csf.conf
+    sed -i 's/TCP_IN = .*/TCP_IN = "22,53,80,443,993,995"/' /etc/csf/csf.conf
+    sed -i 's/TCP_OUT = .*/TCP_OUT = "22,25,53,80,110,443,587,993,995"/' /etc/csf/csf.conf
+    
+    # Disable UFW if it's enabled
+    ufw --force disable 2>/dev/null || true
+    
+    # Start CSF
+    systemctl enable csf
+    systemctl enable lfd
+    systemctl start csf
+    systemctl start lfd
+    
+    cd "$PANEL_DIR"
+    ok "CSF/LFD firewall installed and configured"
+}
+
+# Configure Fail2Ban for additional security
+configure_fail2ban() {
+    log "Configuring Fail2Ban for enhanced security..."
+    
+    cat > /etc/fail2ban/jail.local << EOF
+[DEFAULT]
+bantime = 3600
+findtime = 600
+maxretry = 3
+
+[sshd]
+enabled = true
+port = ssh
+logpath = %(sshd_log)s
+backend = %(sshd_backend)s
+
+[apache-auth]
+enabled = true
+port = http,https
+logpath = %(apache_error_log)s
+
+[apache-badbots]
+enabled = true
+port = http,https
+logpath = %(apache_access_log)s
+bantime = 86400
+maxretry = 1
+
+[apache-noscript]
+enabled = true
+port = http,https
+logpath = %(apache_access_log)s
+
+[apache-overflows]
+enabled = true
+port = http,https
+logpath = %(apache_error_log)s
+maxretry = 2
+EOF
+
+    systemctl restart fail2ban
+    systemctl enable fail2ban
+    
+    ok "Fail2Ban configured and enabled"
+}
+
+# Set up cron jobs for panel maintenance
+setup_cron_jobs() {
+    log "Setting up cron jobs for panel maintenance..."
+    
+    # Panel scheduler (every minute)
+    CRON_LINE="* * * * * www-data cd $PANEL_DIR && php cli/run_cron.php >/dev/null 2>&1"
+    
+    # Add to crontab if not already present
+    if ! crontab -l 2>/dev/null | grep -F "$PANEL_DIR/cli/run_cron.php" >/dev/null; then
+        (crontab -l 2>/dev/null; echo "$CRON_LINE") | crontab -
+    fi
+    
+    # Daily maintenance tasks
+    MAINTENANCE_CRON="0 2 * * * root $PANEL_DIR/scripts/daily_maintenance.sh >/dev/null 2>&1"
+    if ! crontab -l 2>/dev/null | grep -F "daily_maintenance.sh" >/dev/null; then
+        (crontab -l 2>/dev/null; echo "$MAINTENANCE_CRON") | crontab -
+    fi
+    
+    ok "Cron jobs configured"
+}
+
+# Import database schema
+import_database_schema() {
+    log "Importing database schema..."
+    
+    source /root/.phynx_credentials
+    
+    if [[ -f "database.sql" ]]; then
+        mysql -u root -p"$MYSQL_ROOT_PASSWORD" "$DB_NAME" < database.sql
+        ok "Database schema imported from database.sql"
+    elif [[ -f "$PANEL_DIR/database.sql" ]]; then
+        mysql -u root -p"$MYSQL_ROOT_PASSWORD" "$DB_NAME" < "$PANEL_DIR/database.sql"
+        ok "Database schema imported from $PANEL_DIR/database.sql"
+    else
+        warn "No database.sql file found. You'll need to import the schema manually."
+    fi
+}
+
+# Final system optimization
+optimize_system() {
+    log "Applying final system optimizations..."
+    
+    # Update locate database
+    updatedb 2>/dev/null || true
+    
+    # Clear package cache
+    apt-get autoremove -y
+    apt-get autoclean
+    
+    # Set proper timezone
+    timedatectl set-timezone UTC 2>/dev/null || true
+    
+    # Optimize MySQL for small servers
+    if [[ ! -f /etc/mysql/mysql.conf.d/phynx-optimization.cnf ]]; then
+        cat > /etc/mysql/mysql.conf.d/phynx-optimization.cnf << EOF
+[mysqld]
+# Phynx Panel MySQL Optimization
+innodb_buffer_pool_size = 128M
+innodb_log_file_size = 32M
+innodb_flush_log_at_trx_commit = 2
+innodb_flush_method = O_DIRECT
+query_cache_type = 1
+query_cache_size = 32M
+max_connections = 100
+thread_cache_size = 8
+table_open_cache = 1024
+EOF
+        systemctl restart mysql
+    fi
+    
+    ok "System optimization completed"
+}
+
+# Display installation summary
+display_installation_summary() {
+    source /root/.phynx_credentials
+    
+    clear
+    echo -e "${GREEN}"
+    echo "╔════════════════════════════════════════════════════════════════════════════════╗"
+    echo "║                    ${PANEL_DISPLAY_NAME} Installation Complete!                    ║"
+    echo "╚════════════════════════════════════════════════════════════════════════════════╝"
+    echo -e "${NC}"
+    
+    echo -e "\n${CYAN}📋 Installation Summary${NC}"
+    echo "================================"
+    echo -e "Panel URL: ${GREEN}http://$PANEL_DOMAIN${NC}"
+    echo -e "Panel Directory: ${BLUE}$PANEL_DIR${NC}"
+    
+    if [[ "$INSTALL_PMA" == "yes" ]]; then
+        echo -e "phpMyAdmin URL: ${GREEN}http://$PANEL_DOMAIN/pma${NC}"
+    fi
+    
+    echo -e "\n${CYAN}🔐 Database Credentials${NC}"
+    echo "================================"
+    echo -e "MySQL Root Password: ${YELLOW}$MYSQL_ROOT_PASSWORD${NC}"
+    echo -e "Panel Database: ${BLUE}$DB_NAME${NC}"
+    echo -e "Panel DB User: ${BLUE}$DB_USER${NC}"
+    echo -e "Panel DB Password: ${YELLOW}$DB_PASS${NC}"
+    
+    if [[ "$INSTALL_PMA" == "yes" ]]; then
+        echo -e "phpMyAdmin User: ${BLUE}$PMA_DB_USER${NC}"
+        echo -e "phpMyAdmin Password: ${YELLOW}$PMA_DB_PASS${NC}"
+    fi
+    
+    echo -e "\n${CYAN}⚙️ System Information${NC}"
+    echo "================================"
+    echo -e "OS: ${GREEN}$(lsb_release -d | cut -f2)${NC}"
+    echo -e "Web Server: ${GREEN}$WEB_SERVER${NC}"
+    echo -e "PHP Versions: ${GREEN}$(php8.1 -v | head -1 | cut -d' ' -f2), $(php8.2 -v | head -1 | cut -d' ' -f2)${NC}"
+    echo -e "MySQL Version: ${GREEN}$(mysql --version | cut -d' ' -f3 | cut -d',' -f1)${NC}"
+    
+    echo -e "\n${CYAN}🔒 Security Features${NC}"
+    echo "================================"
+    echo -e "Firewall: ${GREEN}$(if [[ "$INSTALL_CSF" == "yes" ]]; then echo "CSF/LFD"; else echo "UFW"; fi)${NC}"
+    echo -e "Fail2Ban: ${GREEN}Enabled${NC}"
+    echo -e "SSL Ready: ${YELLOW}Run Certbot to enable HTTPS${NC}"
+    
+    if [[ "$INSTALL_BIND" == "yes" ]]; then
+        echo -e "DNS Server: ${GREEN}BIND9 (Zone path: $DNS_ZONE_PATH)${NC}"
+    fi
+    
+    echo -e "\n${CYAN}📁 Important Paths${NC}"
+    echo "================================"
+    echo -e "Configuration: ${BLUE}$ENV_FILE${NC}"
+    echo -e "Credentials: ${BLUE}/root/.phynx_credentials${NC}"
+    echo -e "Logs: ${BLUE}$LOG_FILE${NC}"
+    echo -e "Uploads: ${BLUE}$PANEL_DIR/uploads${NC}"
+    echo -e "Backups: ${BLUE}$PANEL_DIR/backups${NC}"
+    
+    echo -e "\n${CYAN}🚀 Next Steps${NC}"
+    echo "================================"
+    echo "1. Point your domain DNS to this server's IP"
+    echo "2. Run: certbot --apache -d $PANEL_DOMAIN (for Apache) or certbot --nginx -d $PANEL_DOMAIN (for Nginx)"
+    echo "3. Visit your panel URL to complete the web-based setup"
+    echo "4. Change all default passwords immediately"
+    echo "5. Review and customize the configuration in $ENV_FILE"
+    
+    echo -e "\n${CYAN}📊 Service Status${NC}"
+    echo "================================"
+    
+    # Check service status
+    services=("mysql" "$WEB_SERVER" "php8.1-fpm" "fail2ban")
+    if [[ "$INSTALL_BIND" == "yes" ]]; then
+        services+=("bind9")
+    fi
+    if [[ "$INSTALL_CSF" == "yes" ]]; then
+        services+=("csf" "lfd")
+    fi
+    
+    for service in "${services[@]}"; do
+        if systemctl is-active --quiet "$service"; then
+            echo -e "${service}: ${GREEN}✓ Running${NC}"
+        else
+            echo -e "${service}: ${RED}✗ Not running${NC}"
+        fi
+    done
+    
+    echo -e "\n${YELLOW}⚠️ Security Reminder${NC}"
+    echo "================================"
+    echo "• Credentials are saved in /root/.phynx_credentials"
+    echo "• Change all default passwords after first login"
+    echo "• Review firewall rules for your specific needs"
+    echo "• Set up regular backups"
+    echo "• Monitor logs regularly"
+    
+    echo -e "\n${GREEN}Installation completed successfully!${NC}"
+    echo -e "For support, visit: ${BLUE}https://phynx.one/support${NC}"
+    
+    # Save installation summary
+    cat > /root/phynx-installation-summary.txt << EOF
+Phynx Panel Installation Summary
+Generated: $(date)
+
+Panel URL: http://$PANEL_DOMAIN
+Panel Directory: $PANEL_DIR
+phpMyAdmin: http://$PANEL_DOMAIN/pma (if enabled)
+
+Database Credentials:
+- MySQL Root Password: $MYSQL_ROOT_PASSWORD
+- Panel Database: $DB_NAME
+- Panel DB User: $DB_USER
+- Panel DB Password: $DB_PASS
+- phpMyAdmin User: $PMA_DB_USER
+- phpMyAdmin Password: $PMA_DB_PASS
+
+Configuration Files:
+- Environment: $ENV_FILE
+- Credentials: /root/.phynx_credentials
+- Installation Log: $LOG_FILE
+
+To enable HTTPS:
+certbot --$WEB_SERVER -d $PANEL_DOMAIN --email $ADMIN_EMAIL --agree-tos --non-interactive
+
+Services Status:
+$(for service in "${services[@]}"; do
+    if systemctl is-active --quiet "$service"; then
+        echo "- $service: Running"
+    else
+        echo "- $service: Not running"
+    fi
+done)
+EOF
+}
+
+# Parse command line arguments
+parse_arguments() {
+    while [[ $# -gt 0 ]]; do
+        case $1 in
+            --web-server=*)
+                WEB_SERVER="${1#*=}"
+                shift
+                ;;
+            --domain=*)
+                PANEL_DOMAIN="${1#*=}"
+                shift
+                ;;
+            --email=*)
+                ADMIN_EMAIL="${1#*=}"
+                shift
+                ;;
+            --no-pma)
+                INSTALL_PMA="no"
+                shift
+                ;;
+            --no-bind)
+                INSTALL_BIND="no"
+                shift
+                ;;
+            --csf)
+                INSTALL_CSF="yes"
+                shift
+                ;;
+            --help|-h)
+                show_help
+                exit 0
+                ;;
+            *)
+                warn "Unknown option: $1"
+                shift
+                ;;
+        esac
+    done
+}
+
+show_help() {
+    echo "Phynx Panel Enhanced Installer"
+    echo ""
+    echo "Usage: $0 [OPTIONS]"
+    echo ""
+    echo "Options:"
+    echo "  --web-server=apache|nginx   Choose web server (default: apache)"
+    echo "  --domain=example.com        Set panel domain name"
+    echo "  --email=admin@example.com   Set admin email address"
+    echo "  --no-pma                    Skip custom PMA deployment"
+    echo "  --no-bind                   Skip BIND9 DNS server installation"
+    echo "  --csf                       Install CSF/LFD instead of UFW firewall"
+    echo "  --help, -h                  Show this help message"
+    echo ""
+    echo "Examples:"
+    echo "  $0                                    # Basic installation with defaults"
+    echo "  $0 --web-server=nginx --domain=panel.mydomain.com"
+    echo "  $0 --no-pma --csf                   # Skip phpMyAdmin, use CSF firewall"
+}
+
+# ===============================
+# Main Installation Process
+# ===============================
+
+main() {
+    # Initialize log file
+    touch "$LOG_FILE"
+    chmod 644 "$LOG_FILE"
+    
+    # Show banner
+    print_banner
+    
+    # Parse command line arguments
+    parse_arguments "$@"
+    
+    # Pre-installation checks
+    log "Starting Phynx Panel Enhanced Installation..."
+    require_root
+    check_ubuntu_version
+    
+    # Confirm installation
+    echo -e "${YELLOW}Installation Configuration:${NC}"
+    echo "• Panel Domain: $PANEL_DOMAIN"
+    echo "• Admin Email: $ADMIN_EMAIL"
+    echo "• Web Server: $WEB_SERVER"
+    echo "• Deploy custom PMA: $INSTALL_PMA"
+    echo "• Install BIND9: $INSTALL_BIND"
+    echo "• Use CSF Firewall: $INSTALL_CSF"
+    echo ""
+    
+    read -p "Proceed with installation? [Y/n]: " -n 1 -r
+    echo
+    if [[ $REPLY =~ ^[Nn]$ ]]; then
+        echo "Installation cancelled."
+        exit 0
+    fi
+    
+    # Start installation process
+    log "Beginning installation process..."
+    
+    # Core system setup
+    update_system
+    install_core_packages
+    install_web_server
+    
+    # Database setup
+    secure_mysql_installation
+    
+    # Panel installation
+    install_panel_files
+    deploy_custom_pma
+    
+    # Configuration
+    configure_php
+    configure_web_server
+    create_environment_config
+    
+    # Optional components
+    install_bind9
+    
+    # Security setup
+    configure_firewall
+    configure_fail2ban
+    
+    # Maintenance setup
+    setup_cron_jobs
+    import_database_schema
+    
+    # Final optimization
+    optimize_system
+    
+    # Show results
+    display_installation_summary
+    
+    log "Installation process completed successfully!"
+}
+
+# Run main installation
+main "$@"

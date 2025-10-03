@@ -1,0 +1,309 @@
+# Phynx Hosting Panel Installation Guide
+
+This guide will walk you through installing the Phynx Hosting Panel on Ubuntu 22.04 or higher with your custom PMA deployment.
+
+## 🔧 System Requirements
+
+### Minimum Requirements
+- **Operating System**: Ubuntu 22.04 LTS or higher
+- **RAM**: 512MB (1GB+ recommended)
+- **Disk Space**: 1GB available
+- **Network**: Internet connection for package downloads
+- **Privileges**: Root access (sudo)
+
+### Supported Ubuntu Versions
+- ✅ Ubuntu 22.04 LTS (Jammy Jellyfish)
+- ✅ Ubuntu 23.04 (Lunar Lobster)
+- ✅ Ubuntu 23.10 (Mantic Minotaur)
+- ✅ Ubuntu 24.04 LTS (Noble Numbat)
+- ⚠️ Later versions (not tested but should work)
+
+## 🚀 Quick Installation
+
+### Step 1: Download Panel Files
+```bash
+# Clone or download the panel to your server
+git clone https://github.com/your-repo/phynx-hosting-panel.git
+cd phynx-hosting-panel
+
+# Or if you have the files already:
+cd /path/to/phynx-hosting-panel
+```
+
+### Step 2: Check System Requirements
+```bash
+# Make scripts executable
+chmod +x check-requirements.sh install-enhanced.sh
+
+# Run pre-installation check
+sudo ./check-requirements.sh
+```
+
+### Step 3: Run Installation
+```bash
+# Basic installation with default settings
+sudo ./install-enhanced.sh
+
+# Or with custom options (see Configuration Options below)
+sudo ./install-enhanced.sh --web-server=nginx --domain=panel.yourdomain.com
+```
+
+## ⚙️ Configuration Options
+
+The enhanced installer supports several configuration options:
+
+```bash
+sudo ./install-enhanced.sh [OPTIONS]
+
+Options:
+  --web-server=apache|nginx    Choose web server (default: apache)
+  --domain=example.com         Set panel domain name
+  --email=admin@example.com    Set admin email address
+  --no-pma                     Skip phpMyAdmin installation
+  --no-bind                    Skip BIND9 DNS server installation
+  --csf                        Install CSF/LFD instead of UFW firewall
+  --help, -h                   Show help message
+```
+
+### Example Configurations
+
+**Basic Apache Installation:**
+```bash
+sudo ./install-enhanced.sh
+```
+
+**Nginx with Custom Domain:**
+```bash
+sudo ./install-enhanced.sh --web-server=nginx --domain=panel.mydomain.com --email=admin@mydomain.com
+```
+
+**Minimal Installation (No DNS, No phpMyAdmin):**
+```bash
+sudo ./install-enhanced.sh --no-bind --no-pma
+```
+
+**High Security Installation with CSF:**
+```bash
+sudo ./install-enhanced.sh --csf --domain=secure-panel.example.com
+```
+
+## 🗂️ What Gets Installed
+
+### Core Components
+- **Web Server**: Apache 2.4 or Nginx (your choice)
+- **Database**: MySQL 8.0 with optimized configuration
+- **PHP**: PHP 8.1 and 8.2 with FPM and required extensions
+- **Panel Files**: Installed to `/var/www/phynx`
+
+### Custom phpMyAdmin Integration
+- **Location**: `/var/www/phynx/pma` (accessible at `yoursite.com/pma`)
+- **Features**: Full database management with panel integration
+- **Security**: Pre-configured with secure defaults
+- **Authentication**: Integrated with panel user system
+
+### Security Features
+- **Firewall**: UFW (default) or CSF/LFD (optional)
+- **Fail2Ban**: Automatic intrusion prevention
+- **SSL Ready**: Certbot installed for easy HTTPS setup
+- **Security Headers**: Configured in web server
+- **File Permissions**: Properly secured file system permissions
+
+### Optional Components
+- **BIND9**: DNS server for domain management (optional)
+- **Cron Jobs**: Automated maintenance tasks
+- **Monitoring**: System resource monitoring
+- **Backup System**: Automated backup capabilities
+
+## 🔐 Post-Installation Security
+
+### 1. Enable HTTPS
+```bash
+# For Apache
+sudo certbot --apache -d your-panel-domain.com
+
+# For Nginx  
+sudo certbot --nginx -d your-panel-domain.com
+```
+
+### 2. Change Default Passwords
+The installer generates secure passwords, but you should:
+- Change the MySQL root password
+- Set up your admin panel account
+- Review phpMyAdmin access credentials
+
+### 3. Firewall Configuration
+```bash
+# Check UFW status
+sudo ufw status
+
+# Or for CSF users
+sudo csf -l
+```
+
+### 4. Review Configuration
+Important files to review:
+- `/var/www/phynx/.env` - Panel configuration
+- `/root/.phynx_credentials` - Database passwords
+- `/var/log/phynx-install.log` - Installation log
+
+## 📁 File Structure After Installation
+
+```
+/var/www/phynx/           # Main panel directory
+├── admin/                # Admin panel files
+├── user/                 # User panel files
+├── pma/                  # Custom phpMyAdmin
+├── assets/               # CSS, JS, images
+├── includes/             # PHP includes
+├── uploads/              # User uploads (writable)
+├── logs/                 # System logs (writable)
+├── backups/              # Backup storage (writable)
+├── .env                  # Environment configuration
+└── config.php            # Database configuration
+
+/root/
+├── .phynx_credentials    # Database passwords (secure)
+└── phynx-installation-summary.txt  # Installation summary
+```
+
+## 🔧 Troubleshooting
+
+### Installation Issues
+
+**Permission Errors:**
+```bash
+# Ensure you're running as root
+sudo ./install-enhanced.sh
+```
+
+**Package Installation Failures:**
+```bash
+# Update package lists first
+sudo apt update
+sudo apt upgrade -y
+```
+
+**MySQL Connection Issues:**
+```bash
+# Check MySQL service
+sudo systemctl status mysql
+
+# Reset MySQL root password if needed
+sudo mysql_secure_installation
+```
+
+### Post-Installation Issues
+
+**Web Server Not Accessible:**
+```bash
+# Check web server status
+sudo systemctl status apache2  # or nginx
+
+# Check firewall
+sudo ufw status
+```
+
+**Database Connection Errors:**
+```bash
+# Verify credentials in
+cat /root/.phynx_credentials
+
+# Test MySQL connection
+mysql -u root -p
+```
+
+**phpMyAdmin Access Issues:**
+```bash
+# Check PMA directory permissions
+ls -la /var/www/phynx/pma/
+
+# Verify web server configuration
+# Apache: /etc/apache2/sites-available/phynx.conf
+# Nginx: /etc/nginx/sites-available/phynx
+```
+
+## 🔄 Updating the Panel
+
+### Manual Update
+```bash
+# Backup current installation
+sudo cp -r /var/www/phynx /var/www/phynx-backup
+
+# Update files (preserve config and data)
+# ... update process ...
+
+# Restore permissions
+sudo chown -R www-data:www-data /var/www/phynx
+```
+
+### Automated Maintenance
+The installer sets up cron jobs for:
+- Daily system cleanup
+- Log rotation
+- Backup maintenance
+- Security updates
+
+## 🆘 Getting Help
+
+### Log Files
+- Installation log: `/var/log/phynx-install.log`
+- Web server logs: `/var/log/apache2/` or `/var/log/nginx/`
+- PHP logs: `/var/log/php8.1-fpm.log`
+- Panel logs: `/var/www/phynx/logs/`
+
+### System Information
+```bash
+# Check installation summary
+cat /root/phynx-installation-summary.txt
+
+# Check service status
+sudo systemctl status apache2 mysql php8.1-fpm
+
+# Check disk usage
+df -h
+
+# Check memory usage
+free -h
+```
+
+### Support Resources
+- Documentation: [Panel Documentation URL]
+- Community Forum: [Forum URL]
+- Bug Reports: [GitHub Issues URL]
+- Email Support: support@phynx.one
+
+## 📋 Installation Checklist
+
+- [ ] System meets minimum requirements (Ubuntu 22.04+, 512MB RAM, 1GB disk)
+- [ ] Run `./check-requirements.sh` successfully
+- [ ] Choose web server (Apache/Nginx)
+- [ ] Set domain name and admin email
+- [ ] Run installation script
+- [ ] Configure DNS to point to server
+- [ ] Set up SSL certificates with Certbot
+- [ ] Complete web-based panel setup
+- [ ] Change all default passwords
+- [ ] Test phpMyAdmin access
+- [ ] Configure firewall rules as needed
+- [ ] Set up regular backups
+- [ ] Review security settings
+
+## ⚡ Performance Tips
+
+### For VPS/Cloud Servers (1-2GB RAM)
+- Use the default UFW firewall
+- Enable PHP OPcache (done automatically)
+- Set up swap file if needed
+- Use Apache for easier management
+
+### For Dedicated Servers (4GB+ RAM)
+- Consider Nginx for better performance
+- Install CSF firewall for advanced security
+- Enable all optional components
+- Set up external backup storage
+
+---
+
+**Last Updated**: October 2025  
+**Version**: 2.0  
+**Compatibility**: Ubuntu 22.04+

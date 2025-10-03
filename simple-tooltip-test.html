@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Simple Tooltip Test</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 20px;
+            background: #1e293b;
+            color: white;
+            font-family: Arial, sans-serif;
+        }
+
+        .test-item {
+            width: 60px;
+            height: 60px;
+            background: #334155;
+            margin: 20px;
+            position: relative;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 8px;
+        }
+
+        /* Always visible tooltip for testing */
+        .test-item::after {
+            content: attr(data-tooltip);
+            position: fixed;
+            left: 200px;
+            top: 100px;
+            background: red;
+            color: white;
+            padding: 10px;
+            border-radius: 4px;
+            white-space: nowrap;
+            z-index: 9999;
+            border: 2px solid yellow;
+        }
+
+        /* Hover-based tooltip */
+        .test-item::before {
+            content: attr(data-tooltip);
+            position: fixed;
+            left: 200px;
+            top: 200px;
+            background: blue;
+            color: white;
+            padding: 10px;
+            border-radius: 4px;
+            white-space: nowrap;
+            z-index: 9999;
+            border: 2px solid white;
+            opacity: 0;
+            visibility: hidden;
+        }
+
+        .test-item:hover::before {
+            opacity: 1;
+            visibility: visible;
+        }
+    </style>
+</head>
+<body>
+    <h1>Tooltip Debugging Test</h1>
+    
+    <p>This page tests if tooltips work at all:</p>
+    
+    <div class="test-item" data-tooltip="Always Visible">1</div>
+    <div class="test-item" data-tooltip="Hover Me">2</div>
+    <div class="test-item" data-tooltip="Test Tooltip">3</div>
+    
+    <p>Expected:</p>
+    <ul>
+        <li><strong>Red tooltip</strong> should ALWAYS be visible (::after)</li>
+        <li><strong>Blue tooltip</strong> should appear on hover (::before)</li>
+        <li>Both should be at fixed positions on screen</li>
+    </ul>
+
+    <script>
+        console.log('Simple tooltip test loaded');
+        console.log('Items found:', document.querySelectorAll('.test-item').length);
+    </script>
+</body>
+</html>

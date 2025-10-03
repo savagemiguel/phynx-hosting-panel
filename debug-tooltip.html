@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tooltip Test</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 20px;
+            background: #1e293b;
+            color: white;
+            font-family: system-ui;
+        }
+
+        .sidebar {
+            width: 80px;
+            height: 100vh;
+            background: #0f172a;
+            position: fixed;
+            left: 0;
+            top: 0;
+            padding: 20px 0;
+        }
+
+        .nav-item {
+            position: relative;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            height: 50px;
+            margin: 10px;
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 8px;
+            cursor: pointer;
+        }
+
+        .nav-item::after {
+            content: attr(data-tooltip);
+            position: absolute;
+            left: calc(100% + 15px);
+            top: 50%;
+            transform: translateY(-50%);
+            background: rgba(15, 23, 42, 0.95);
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+            color: #f1f5f9;
+            padding: 12px 16px;
+            border-radius: 8px;
+            font-size: 13px;
+            font-weight: 500;
+            white-space: nowrap;
+            opacity: 0;
+            visibility: hidden;
+            transition: all 0.2s ease;
+            z-index: 10000;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            pointer-events: none;
+            min-width: 120px;
+        }
+
+        .nav-item::before {
+            content: '';
+            position: absolute;
+            left: calc(100% + 8px);
+            top: 50%;
+            transform: translateY(-50%);
+            width: 0;
+            height: 0;
+            border-top: 7px solid transparent;
+            border-bottom: 7px solid transparent;
+            border-right: 7px solid rgba(15, 23, 42, 0.95);
+            opacity: 0;
+            visibility: hidden;
+            transition: all 0.2s ease;
+            z-index: 10000;
+            pointer-events: none;
+        }
+
+        .nav-item:hover::after,
+        .nav-item:hover::before {
+            opacity: 1;
+            visibility: visible;
+        }
+
+        .content {
+            margin-left: 120px;
+            padding: 20px;
+        }
+
+        .test-info {
+            background: rgba(255, 255, 255, 0.1);
+            padding: 20px;
+            border-radius: 8px;
+            margin: 20px 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="sidebar">
+        <div class="nav-item" data-tooltip="Dashboard">
+            <i>📊</i>
+        </div>
+        <div class="nav-item" data-tooltip="Users Management">
+            <i>👥</i>
+        </div>
+        <div class="nav-item" data-tooltip="Server Settings">
+            <i>⚙️</i>
+        </div>
+        <div class="nav-item" data-tooltip="File Manager">
+            <i>📁</i>
+        </div>
+        <div class="nav-item" data-tooltip="Security & SSL">
+            <i>🔒</i>
+        </div>
+    </div>
+
+    <div class="content">
+        <h1>Tooltip Test Page</h1>
+        
+        <div class="test-info">
+            <h3>Test Instructions:</h3>
+            <p><strong>Hover over the icons in the left sidebar</strong> to test tooltip functionality.</p>
+            
+            <h3>Expected Behavior:</h3>
+            <ul>
+                <li>✅ Tooltips should appear to the RIGHT of each icon</li>
+                <li>✅ Tooltips should have a dark background with blur effect</li>
+                <li>✅ Small arrow should point from tooltip to icon</li>
+                <li>✅ Smooth fade in/out animation</li>
+                <li>✅ No JavaScript required - pure CSS</li>
+            </ul>
+        </div>
+
+        <div style="height: 500px;">
+            <p>Scroll content to test positioning...</p>
+        </div>
+    </div>
+
+    <script>
+        console.log('Tooltip test page loaded');
+        
+        // Add some debug info
+        document.addEventListener('DOMContentLoaded', function() {
+            const navItems = document.querySelectorAll('.nav-item');
+            console.log('Found nav items:', navItems.length);
+            
+            navItems.forEach(function(item, index) {
+                console.log('Nav item', index, 'has tooltip:', item.getAttribute('data-tooltip'));
+                
+                item.addEventListener('mouseenter', function() {
+                    console.log('Hovering over:', item.getAttribute('data-tooltip'));
+                });
+                
+                item.addEventListener('mouseleave', function() {
+                    console.log('Left:', item.getAttribute('data-tooltip'));
+                });
+            });
+        });
+    </script>
+</body>
+</html>
