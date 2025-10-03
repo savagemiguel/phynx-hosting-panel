@@ -1,8 +1,8 @@
 <?php
 /**
- * Custom PMA configuration for Phynx Panel
+ * Custom Phynx configuration for Phynx Panel
  * This is a template file that will be processed by the installer
- * Your custom PMA version will use this configuration
+ * Your custom Phynx database manager will use this configuration
  */
 
 // Prevent direct access

@@ -318,10 +318,10 @@ install_panel_files() {
     fi
 }
 
-# Deploy and configure custom Phynx
+# Deploy and configure custom PMA
 deploy_custom_pma() {
     if [[ "$INSTALL_PMA" != "yes" ]]; then
-        log "Skipping custom Phynx deployment (disabled)"
+        log "Skipping custom PMA deployment (disabled)"
         return 0
     fi
     

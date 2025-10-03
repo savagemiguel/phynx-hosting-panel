@@ -262,7 +262,7 @@ secure_mysql_installation() {
     mysql -u root -p"$MYSQL_ROOT_PASS" -e "CREATE USER IF NOT EXISTS '$DB_USER'@'localhost' IDENTIFIED BY '$DB_PASS';"
     mysql -u root -p"$MYSQL_ROOT_PASS" -e "GRANT ALL PRIVILEGES ON $DB_NAME.* TO '$DB_USER'@'localhost';"
     
-    # Create database user for custom Phynx if deploying it
+    # Create database user for custom PMA if deploying it
     if [[ "$INSTALL_PMA" == "yes" ]]; then
         mysql -u root -p"$MYSQL_ROOT_PASS" -e "CREATE USER IF NOT EXISTS '$PMA_DB_USER'@'localhost' IDENTIFIED BY '$PMA_DB_PASS';"
         mysql -u root -p"$MYSQL_ROOT_PASS" -e "GRANT ALL PRIVILEGES ON *.* TO '$PMA_DB_USER'@'localhost' WITH GRANT OPTION;"
@@ -318,10 +318,10 @@ install_panel_files() {
     fi
 }
 
-# Deploy and configure custom Phynx
+# Deploy and configure custom PMA
 deploy_custom_pma() {
     if [[ "$INSTALL_PMA" != "yes" ]]; then
-        log "Skipping custom Phynx deployment (disabled)"
+        log "Skipping custom PMA deployment (disabled)"
         return 0
     fi
     

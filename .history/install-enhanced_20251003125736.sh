@@ -262,7 +262,7 @@ secure_mysql_installation() {
     mysql -u root -p"$MYSQL_ROOT_PASS" -e "CREATE USER IF NOT EXISTS '$DB_USER'@'localhost' IDENTIFIED BY '$DB_PASS';"
     mysql -u root -p"$MYSQL_ROOT_PASS" -e "GRANT ALL PRIVILEGES ON $DB_NAME.* TO '$DB_USER'@'localhost';"
     
-    # Create database user for custom Phynx if deploying it
+    # Create database user for custom PMA if deploying it
     if [[ "$INSTALL_PMA" == "yes" ]]; then
         mysql -u root -p"$MYSQL_ROOT_PASS" -e "CREATE USER IF NOT EXISTS '$PMA_DB_USER'@'localhost' IDENTIFIED BY '$PMA_DB_PASS';"
         mysql -u root -p"$MYSQL_ROOT_PASS" -e "GRANT ALL PRIVILEGES ON *.* TO '$PMA_DB_USER'@'localhost' WITH GRANT OPTION;"
@@ -318,30 +318,30 @@ install_panel_files() {
     fi
 }
 
-# Deploy and configure custom Phynx
+# Deploy and configure custom PMA
 deploy_custom_pma() {
     if [[ "$INSTALL_PMA" != "yes" ]]; then
-        log "Skipping custom Phynx deployment (disabled)"
+        log "Skipping custom PMA deployment (disabled)"
         return 0
     fi
     
-    log "Deploying custom Phynx..."
+    log "Deploying custom PMA..."
     
-    if [[ -d "phynx" ]]; then
-        # Copy your custom Phynx files
-        cp -r phynx "$PMA_DIR"
+    if [[ -d "pma" ]]; then
+        # Copy your custom PMA files
+        cp -r pma "$PMA_DIR"
         
         # Set proper ownership and permissions
         chown -R www-data:www-data "$PMA_DIR"
         find "$PMA_DIR" -type d -exec chmod 755 {} \\;
         find "$PMA_DIR" -type f -exec chmod 644 {} \\;
         
-        # Create necessary directories for Phynx
+        # Create necessary directories for PMA
         mkdir -p "$PMA_DIR"/{tmp,uploads,save,upload}
         chown -R www-data:www-data "$PMA_DIR"/{tmp,uploads,save,upload}
         chmod 777 "$PMA_DIR"/{tmp,uploads,save,upload}
         
-        # Configure your custom Phynx if config template exists
+        # Configure your custom PMA if config template exists
         if [[ -f "$PMA_DIR/config.sample.php" ]]; then
             source /root/.phynx_credentials
             
@@ -353,9 +353,9 @@ deploy_custom_pma() {
             chmod 644 "$PMA_DIR/config.inc.php"
         fi
         
-        ok "Custom Phynx deployed at $PMA_DIR"
+        ok "Custom PMA deployed at $PMA_DIR"
     else
-        warn "Custom Phynx directory 'phynx' not found. Skipping deployment."
+        warn "Custom PMA directory 'pma' not found. Skipping deployment."
         INSTALL_PMA="no"
     fi
 }
@@ -1034,7 +1034,7 @@ show_help() {
     echo "  --web-server=apache|nginx   Choose web server (default: apache)"
     echo "  --domain=example.com        Set panel domain name"
     echo "  --email=admin@example.com   Set admin email address"
-    echo "  --no-pma                    Skip custom Phynx deployment"
+    echo "  --no-pma                    Skip custom PMA deployment"
     echo "  --no-bind                   Skip BIND9 DNS server installation"
     echo "  --csf                       Install CSF/LFD instead of UFW firewall"
     echo "  --help, -h                  Show this help message"
@@ -1070,7 +1070,7 @@ main() {
     echo "• Panel Domain: $PANEL_DOMAIN"
     echo "• Admin Email: $ADMIN_EMAIL"
     echo "• Web Server: $WEB_SERVER"
-    echo "• Deploy custom Phynx: $INSTALL_PMA"
+    echo "• Deploy custom PMA: $INSTALL_PMA"
     echo "• Install BIND9: $INSTALL_BIND"
     echo "• Use CSF Firewall: $INSTALL_CSF"
     echo ""
