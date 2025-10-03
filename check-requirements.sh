@@ -84,7 +84,7 @@ else
 fi
 
 print_header "Required Commands"
-REQUIRED_COMMANDS=("apt-get" "systemctl" "mysql" "openssl" "wget" "curl")
+REQUIRED_COMMANDS=("apt-get" "systemctl" "mysql" "openssl" "wget" "curl" "git" "unzip")
 for cmd in "${REQUIRED_COMMANDS[@]}"; do
     if command -v "$cmd" &> /dev/null; then
         check_pass "$cmd command available"
@@ -92,6 +92,38 @@ for cmd in "${REQUIRED_COMMANDS[@]}"; do
         check_warn "$cmd command not found (will be installed)"
     fi
 done
+
+print_header "PHP Requirements"
+# Check if PHP is installed and version
+if command -v php &> /dev/null; then
+    PHP_VERSION=$(php -v | head -n 1 | cut -d ' ' -f 2 | cut -d '.' -f 1,2)
+    if [[ "$PHP_VERSION" == "8.1" ]] || [[ "$PHP_VERSION" == "8.2" ]] || [[ "$PHP_VERSION" == "8.3" ]]; then
+        check_pass "PHP $PHP_VERSION installed (compatible)"
+    else
+        check_warn "PHP $PHP_VERSION installed (will install PHP 8.1/8.2)"
+    fi
+else
+    check_pass "PHP not installed (will install PHP 8.1 and 8.2)"
+fi
+
+print_header "Security Checks"
+# Check for common security tools
+if command -v fail2ban-client &> /dev/null; then
+    check_warn "Fail2Ban already installed"
+else
+    check_pass "Fail2Ban not installed (will be configured)"
+fi
+
+if command -v ufw &> /dev/null; then
+    UFW_STATUS=$(ufw status | head -1 | awk '{print $2}')
+    if [[ "$UFW_STATUS" == "active" ]]; then
+        check_warn "UFW firewall is active (rules will be added)"
+    else
+        check_pass "UFW available but inactive"
+    fi
+else
+    check_pass "UFW not installed (will be configured)"
+fi
 
 print_header "System Resources"
 # Check RAM
@@ -135,10 +167,10 @@ else
     check_fail "Panel files not found (run from panel root directory)"
 fi
 
-if [[ -d "pma" ]]; then
-    check_pass "Custom phpMyAdmin directory found"
+if [[ -d "phynx" ]]; then
+    check_pass "Custom Phynx directory found"
 else
-    check_warn "Custom phpMyAdmin directory not found (will skip PMA installation)"
+    check_warn "Custom Phynx directory not found (will skip Phynx installation)"
 fi
 
 if [[ -f "database.sql" ]]; then
@@ -147,8 +179,28 @@ else
     check_warn "Database schema file not found (manual import required)"
 fi
 
+print_header "Docker Availability"
+if command -v docker &> /dev/null; then
+    if systemctl is-active --quiet docker; then
+        check_pass "Docker is installed and running"
+    else
+        check_warn "Docker installed but not running"
+    fi
+    
+    # Check if user can access docker (when not running as root)
+    if [[ $EUID -ne 0 ]]; then
+        if groups $USER | grep -q docker; then
+            check_pass "User is in docker group"
+        else
+            check_warn "User not in docker group (will be added)"
+        fi
+    fi
+else
+    check_pass "Docker not installed (optional, will be installed for container management)"
+fi
+
 print_header "Existing Installations"
-if [[ -d "/var/www/phynx" ]]; then
+if [[ -d "/var/www/html/phynx" ]]; then
     check_warn "Existing Phynx installation found (will be overwritten)"
 fi
 
@@ -180,11 +232,17 @@ if [[ $FAIL_COUNT -eq 0 ]]; then
     echo "To proceed with installation, run:"
     echo "  sudo ./install-enhanced.sh"
     echo ""
-    echo "Optional parameters:"
+    echo "Available installation options:"
     echo "  --web-server=nginx          # Use Nginx instead of Apache"
-    echo "  --domain=panel.example.com  # Set custom domain"
-    echo "  --no-pma                    # Skip phpMyAdmin installation"
+    echo "  --web-server=apache         # Use Apache (default)"
+    echo "  --domain=panel.example.com  # Set custom domain for SSL"
+    echo "  --no-pma                    # Skip Phynx database manager"
     echo "  --csf                       # Use CSF firewall instead of UFW"
+    echo "  --no-docker                 # Skip Docker installation"
+    echo "  --php-version=8.2           # Specify PHP version (8.1 or 8.2)"
+    echo ""
+    echo "Example:"
+    echo "  sudo ./install-enhanced.sh --web-server=nginx --domain=panel.mysite.com"
     exit 0
 else
     echo -e "${RED}✗ System not ready for installation${NC}"
