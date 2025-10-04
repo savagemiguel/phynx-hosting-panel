@@ -1818,11 +1818,10 @@ show_help() {
     echo ""
     echo "Options:"
     echo "  --web-server=apache|nginx   Choose web server (default: apache)"
-    echo "  --domain=example.com        Set main domain (creates *.domain structure)"
+    echo "  --domain=example.com        Set panel domain name"
     echo "  --email=admin@example.com   Set admin email address"
     echo "  --http-port=PORT            Set custom HTTP port (default: 80)"
-    echo "  --https-port=PORT           Set custom HTTPS port (default: 443)"
-    echo "  --secure-port=PORT          Set secure admin port (default: 2083)"
+    echo "  --https-port=PORT           Set custom HTTPS port (default: 2083)"
     echo "  --no-pma                    Skip custom Phynx deployment"
     echo "  --no-bind                   Skip BIND9 DNS server installation"
     echo "  --csf                       Install CSF/LFD instead of UFW firewall"
@@ -1830,11 +1829,10 @@ show_help() {
     echo "  --help, -h                  Show this help message"
     echo ""
     echo "Examples:"
-    echo "  $0                                    # Interactive installation (uses phynx.one)"
-    echo "  $0 --domain=yourdomain.com           # Creates *.yourdomain.com structure"
-    echo "  $0 --web-server=nginx --domain=hosting.company.com"
+    echo "  $0                                    # Interactive installation with prompts"
+    echo "  $0 --web-server=nginx --domain=panel.mydomain.com"
     echo "  $0 --no-pma --csf                   # Skip phpMyAdmin, use CSF firewall"
-    echo "  $0 --domain=server.net --secure-port=8443 --email=admin@server.net"
+    echo "  $0 --domain=panel.site.com --email=admin@site.com --https-port=8443"
 }
 
 # Parse command line arguments
@@ -1845,10 +1843,7 @@ parse_arguments() {
                 WEB_SERVER="${1#*=}"
                 ;;
             --domain=*)
-                MAIN_DOMAIN="${1#*=}"
-                PANEL_SUBDOMAIN="panel.$MAIN_DOMAIN"
-                PHYNXADMIN_SUBDOMAIN="phynxadmin.$MAIN_DOMAIN"
-                PANEL_DOMAIN="$MAIN_DOMAIN"
+                PANEL_DOMAIN="${1#*=}"
                 ;;
             --email=*)
                 ADMIN_EMAIL="${1#*=}"
@@ -1858,9 +1853,6 @@ parse_arguments() {
                 ;;
             --https-port=*)
                 HTTPS_PORT="${1#*=}"
-                ;;
-            --secure-port=*)
-                SECURE_PORT="${1#*=}"
                 ;;
             --no-pma)
                 INSTALL_PMA="no"

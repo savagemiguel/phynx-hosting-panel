@@ -1830,11 +1830,10 @@ show_help() {
     echo "  --help, -h                  Show this help message"
     echo ""
     echo "Examples:"
-    echo "  $0                                    # Interactive installation (uses phynx.one)"
-    echo "  $0 --domain=yourdomain.com           # Creates *.yourdomain.com structure"
-    echo "  $0 --web-server=nginx --domain=hosting.company.com"
+    echo "  $0                                    # Interactive installation with prompts"
+    echo "  $0 --web-server=nginx --domain=panel.mydomain.com"
     echo "  $0 --no-pma --csf                   # Skip phpMyAdmin, use CSF firewall"
-    echo "  $0 --domain=server.net --secure-port=8443 --email=admin@server.net"
+    echo "  $0 --domain=panel.site.com --email=admin@site.com --https-port=8443"
 }
 
 # Parse command line arguments
@@ -1845,10 +1844,7 @@ parse_arguments() {
                 WEB_SERVER="${1#*=}"
                 ;;
             --domain=*)
-                MAIN_DOMAIN="${1#*=}"
-                PANEL_SUBDOMAIN="panel.$MAIN_DOMAIN"
-                PHYNXADMIN_SUBDOMAIN="phynxadmin.$MAIN_DOMAIN"
-                PANEL_DOMAIN="$MAIN_DOMAIN"
+                PANEL_DOMAIN="${1#*=}"
                 ;;
             --email=*)
                 ADMIN_EMAIL="${1#*=}"
@@ -1858,9 +1854,6 @@ parse_arguments() {
                 ;;
             --https-port=*)
                 HTTPS_PORT="${1#*=}"
-                ;;
-            --secure-port=*)
-                SECURE_PORT="${1#*=}"
                 ;;
             --no-pma)
                 INSTALL_PMA="no"

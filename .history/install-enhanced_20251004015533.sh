@@ -1845,10 +1845,7 @@ parse_arguments() {
                 WEB_SERVER="${1#*=}"
                 ;;
             --domain=*)
-                MAIN_DOMAIN="${1#*=}"
-                PANEL_SUBDOMAIN="panel.$MAIN_DOMAIN"
-                PHYNXADMIN_SUBDOMAIN="phynxadmin.$MAIN_DOMAIN"
-                PANEL_DOMAIN="$MAIN_DOMAIN"
+                PANEL_DOMAIN="${1#*=}"
                 ;;
             --email=*)
                 ADMIN_EMAIL="${1#*=}"
@@ -1858,9 +1855,6 @@ parse_arguments() {
                 ;;
             --https-port=*)
                 HTTPS_PORT="${1#*=}"
-                ;;
-            --secure-port=*)
-                SECURE_PORT="${1#*=}"
                 ;;
             --no-pma)
                 INSTALL_PMA="no"

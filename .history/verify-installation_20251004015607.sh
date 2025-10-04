@@ -342,22 +342,22 @@ echo "  sudo certbot --nginx -d your-domain.com   # For Nginx"
 
 print_section "Access Information"
 
-echo -e "\n${YELLOW}🌐 Access URLs:${NC}"
+echo -e "\nIf everything looks good, access your panel at:"
 
-echo -e "${CYAN}Main Website:${NC}"
-echo -e "• ${GREEN}http://$MAIN_DOMAIN${NC} (HTTP)"
-echo -e "• ${GREEN}https://$MAIN_DOMAIN${NC} (HTTPS after SSL)"
-echo -e "• ${GREEN}http://$SERVER_IP${NC} (IP access)"
+# Get server IP
+SERVER_IP=$(hostname -I | awk '{print $1}')
+echo -e "• ${GREEN}http://$SERVER_IP${NC} (Panel HTTP)"  
+echo -e "• ${GREEN}https://$SERVER_IP:$HTTPS_PORT${NC} (Panel HTTPS)"
 
-echo -e "\n${CYAN}Admin Panel:${NC}"
-echo -e "• ${GREEN}http://$PANEL_SUBDOMAIN${NC} (subdomain)"
-echo -e "• ${GREEN}http://$MAIN_DOMAIN/panel${NC} (directory)"
-echo -e "• ${GREEN}https://$MAIN_DOMAIN:$SECURE_PORT${NC} (secure port)"
+# Check if domain is configured
+if [[ -f "$PANEL_DIR/.env" ]] && grep -q "PANEL_DOMAIN" "$PANEL_DIR/.env"; then
+    PANEL_DOMAIN=$(grep "PANEL_DOMAIN" "$PANEL_DIR/.env" | cut -d'=' -f2)
+    echo -e "• ${GREEN}http://$PANEL_DOMAIN${NC} (configured domain)"
+fi
 
-echo -e "\n${CYAN}Database Manager:${NC}"
+# phpMyAdmin access
 if [[ -d "$PMA_DIR" ]]; then
-    echo -e "• ${GREEN}http://$PHYNXADMIN_SUBDOMAIN${NC} (subdomain)"
-    echo -e "• ${GREEN}http://$MAIN_DOMAIN/phynxadmin${NC} (directory)"
+    echo -e "• ${GREEN}http://$SERVER_IP/phynx${NC} (Phynx Database Manager)"
 fi
 
 echo -e "\n${BLUE}Next Steps:${NC}"

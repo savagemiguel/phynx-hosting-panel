@@ -982,80 +982,12 @@ EOF
 }
 
 configure_nginx_vhost() {
-    log "Creating Nginx server blocks for multiple domains and ports..."
+    log "Creating Nginx server block configuration for ports 80 and $HTTPS_PORT..."
     
     cat > "$NGINX_SITE" << EOF
-# Main website - phynx.one (HTTP)
 server {
     listen 80;
-    server_name $MAIN_DOMAIN www.$MAIN_DOMAIN $SERVER_IP;
-    root /var/www/html;
-    index index.php index.html index.htm;
-    
-    # Security headers
-    add_header X-Frame-Options "SAMEORIGIN" always;
-    add_header X-XSS-Protection "1; mode=block" always;
-    add_header X-Content-Type-Options "nosniff" always;
-    add_header Referrer-Policy "strict-origin-when-cross-origin" always;
-    
-    # Admin panel alias
-    location /panel {
-        alias $PANEL_DIR;
-        try_files \$uri \$uri/ /panel/index.php?\$query_string;
-        
-        location ~ /panel/.*\\.php\$ {
-            fastcgi_pass unix:/run/php/php8.4-fpm.sock;
-            fastcgi_index index.php;
-            fastcgi_param SCRIPT_FILENAME $PANEL_DIR\$fastcgi_script_name;
-            include fastcgi_params;
-        }
-    }
-    
-    # PhynxAdmin alias
-    location /phynxadmin {
-        alias $PMA_DIR;
-        try_files \$uri \$uri/ /phynxadmin/index.php?\$query_string;
-        
-        location ~ /phynxadmin/.*\\.php\$ {
-            fastcgi_pass unix:/run/php/php8.4-fpm.sock;
-            fastcgi_index index.php;
-            fastcgi_param SCRIPT_FILENAME $PMA_DIR\$fastcgi_script_name;
-            include fastcgi_params;
-        }
-    }
-    
-    # Main website location
-    location / {
-        try_files \$uri \$uri/ /index.php?\$query_string;
-    }
-    
-    # PHP processing for main site
-    location ~ \\.php\$ {
-        try_files \$uri =404;
-        fastcgi_split_path_info ^(.+\\.php)(/.+)\$;
-        fastcgi_pass unix:/run/php/php8.4-fpm.sock;
-        fastcgi_index index.php;
-        fastcgi_param SCRIPT_FILENAME \$realpath_root\$fastcgi_script_name;
-        include fastcgi_params;
-    }
-    
-    # Security restrictions
-    location ~ /\\.ht { deny all; }
-    location ~ /\\.env { deny all; }
-    location ~ /config\\.php { deny all; }
-    
-    # Static files optimization
-    location ~* \\.(css|js|png|jpg|jpeg|gif|ico|svg|woff|woff2|ttf|eot)\$ {
-        expires 1y;
-        add_header Cache-Control "public, immutable";
-        access_log off;
-    }
-}
-
-# Admin panel subdomain - panel.phynx.one
-server {
-    listen 80;
-    server_name $PANEL_SUBDOMAIN;
+    server_name $PANEL_DOMAIN;
     root $PANEL_DIR;
     index index.php index.html;
     
@@ -1065,118 +997,25 @@ server {
     add_header X-Content-Type-Options "nosniff" always;
     add_header Referrer-Policy "strict-origin-when-cross-origin" always;
     
+    # Main location
     location / {
         try_files \$uri \$uri/ /index.php?\$query_string;
     }
     
-    location ~ \\.php\$ {
-        try_files \$uri =404;
-        fastcgi_split_path_info ^(.+\\.php)(/.+)\$;
-        fastcgi_pass unix:/run/php/php8.4-fpm.sock;
-        fastcgi_index index.php;
-        fastcgi_param SCRIPT_FILENAME \$realpath_root\$fastcgi_script_name;
-        include fastcgi_params;
-    }
-    
-    # Security restrictions
-    location ~ /\\.ht { deny all; }
-    location ~ /\\.env { deny all; }
-    location ~ /config\\.php { deny all; }
-    
-    # Static files optimization
-    location ~* \\.(css|js|png|jpg|jpeg|gif|ico|svg|woff|woff2|ttf|eot)\$ {
-        expires 1y;
-        add_header Cache-Control "public, immutable";
-        access_log off;
-    }
-}
-
-# Database manager subdomain - phynxadmin.phynx.one
-server {
-    listen 80;
-    server_name $PHYNXADMIN_SUBDOMAIN;
-    root $PMA_DIR;
-    index index.php index.html;
-    
-    # Security headers
-    add_header X-Frame-Options "SAMEORIGIN" always;
-    add_header X-XSS-Protection "1; mode=block" always;
-    add_header X-Content-Type-Options "nosniff" always;
-    add_header Referrer-Policy "strict-origin-when-cross-origin" always;
-    
-    location / {
-        try_files \$uri \$uri/ /index.php?\$query_string;
-    }
-    
-    location ~ \\.php\$ {
-        try_files \$uri =404;
-        fastcgi_split_path_info ^(.+\\.php)(/.+)\$;
-        fastcgi_pass unix:/run/php/php8.4-fpm.sock;
-        fastcgi_index index.php;
-        fastcgi_param SCRIPT_FILENAME \$realpath_root\$fastcgi_script_name;
-        include fastcgi_params;
-    }
-    
-    # Security restrictions
-    location ~ /\\.ht { deny all; }
-    location ~ /\\.env { deny all; }
-    location ~ /config\\.php { deny all; }
-    
-    # Static files optimization
-    location ~* \\.(css|js|png|jpg|jpeg|gif|ico|svg|woff|woff2|ttf|eot)\$ {
-        expires 1y;
-        add_header Cache-Control "public, immutable";
-        access_log off;
-    }
-}
-
-# HTTPS configurations (will be enhanced by SSL setup)
-# Main website HTTPS - phynx.one:443
-server {
-    listen 443 ssl;
-    server_name $MAIN_DOMAIN www.$MAIN_DOMAIN;
-    root /var/www/html;
-    index index.php index.html;
-    
-    # SSL configuration will be added by Certbot
-    
-    # Security headers for HTTPS
-    add_header Strict-Transport-Security "max-age=63072000; includeSubDomains; preload" always;
-    add_header X-Frame-Options "SAMEORIGIN" always;
-    add_header X-XSS-Protection "1; mode=block" always;
-    add_header X-Content-Type-Options "nosniff" always;
-    add_header Referrer-Policy "strict-origin-when-cross-origin" always;
-    
-    # Admin panel alias
-    location /panel {
-        alias $PANEL_DIR;
-        try_files \$uri \$uri/ /panel/index.php?\$query_string;
-        
-        location ~ /panel/.*\\.php\$ {
-            fastcgi_pass unix:/run/php/php8.4-fpm.sock;
-            fastcgi_index index.php;
-            fastcgi_param SCRIPT_FILENAME $PANEL_DIR\$fastcgi_script_name;
-            include fastcgi_params;
-        }
-    }
-    
-    # PhynxAdmin alias
-    location /phynxadmin {
+    # Custom phpMyAdmin
+    location /pma {
         alias $PMA_DIR;
-        try_files \$uri \$uri/ /phynxadmin/index.php?\$query_string;
-        
-        location ~ /phynxadmin/.*\\.php\$ {
-            fastcgi_pass unix:/run/php/php8.4-fpm.sock;
-            fastcgi_index index.php;
-            fastcgi_param SCRIPT_FILENAME $PMA_DIR\$fastcgi_script_name;
-            include fastcgi_params;
-        }
+        try_files \$uri \$uri/ /pma/index.php?\$query_string;
     }
     
-    location / {
-        try_files \$uri \$uri/ /index.php?\$query_string;
+    location ~ /pma/.*\\.php\$ {
+        fastcgi_pass unix:/run/php/php8.4-fpm.sock;
+        fastcgi_index index.php;
+        fastcgi_param SCRIPT_FILENAME $PMA_DIR\$fastcgi_script_name;
+        include fastcgi_params;
     }
     
+    # PHP processing
     location ~ \\.php\$ {
         try_files \$uri =404;
         fastcgi_split_path_info ^(.+\\.php)(/.+)\$;
@@ -1186,49 +1025,7 @@ server {
         include fastcgi_params;
     }
     
-    # Security restrictions
-    location ~ /\\.ht { deny all; }
-    location ~ /\\.env { deny all; }
-    location ~ /config\\.php { deny all; }
-    
-    # Static files optimization
-    location ~* \\.(css|js|png|jpg|jpeg|gif|ico|svg|woff|woff2|ttf|eot)\$ {
-        expires 1y;
-        add_header Cache-Control "public, immutable";
-        access_log off;
-    }
-}
-
-# Secure admin panel - phynx.one:2083
-server {
-    listen $SECURE_PORT ssl;
-    server_name $MAIN_DOMAIN;
-    root $PANEL_DIR;
-    index index.php index.html;
-    
-    # SSL configuration will be added by Certbot
-    
-    # Security headers for HTTPS
-    add_header Strict-Transport-Security "max-age=63072000; includeSubDomains; preload" always;
-    add_header X-Frame-Options "SAMEORIGIN" always;
-    add_header X-XSS-Protection "1; mode=block" always;
-    add_header X-Content-Type-Options "nosniff" always;
-    add_header Referrer-Policy "strict-origin-when-cross-origin" always;
-    
-    location / {
-        try_files \$uri \$uri/ /index.php?\$query_string;
-    }
-    
-    location ~ \\.php\$ {
-        try_files \$uri =404;
-        fastcgi_split_path_info ^(.+\\.php)(/.+)\$;
-        fastcgi_pass unix:/run/php/php8.4-fpm.sock;
-        fastcgi_index index.php;
-        fastcgi_param SCRIPT_FILENAME \$realpath_root\$fastcgi_script_name;
-        include fastcgi_params;
-    }
-    
-    # Security restrictions
+    # Deny access to sensitive files
     location ~ /\\.ht { deny all; }
     location ~ /\\.env { deny all; }
     location ~ /config\\.php { deny all; }
@@ -1390,7 +1187,6 @@ configure_ufw_firewall() {
     ufw allow ssh
     ufw allow 80/tcp
     ufw allow $HTTPS_PORT/tcp
-    ufw allow $SECURE_PORT/tcp
     
     # Allow DNS if BIND is installed
     if [[ "$INSTALL_BIND" == "yes" ]]; then
@@ -1415,8 +1211,8 @@ install_csf_firewall() {
     
     # Basic CSF configuration
     sed -i 's/TESTING = "1"/TESTING = "0"/' /etc/csf/csf.conf
-    sed -i "s/TCP_IN = .*/TCP_IN = \"22,53,80,$HTTPS_PORT,$SECURE_PORT,993,995\"/" /etc/csf/csf.conf
-    sed -i "s/TCP_OUT = .*/TCP_OUT = \"22,25,53,80,110,$HTTPS_PORT,$SECURE_PORT,587,993,995\"/" /etc/csf/csf.conf
+    sed -i "s/TCP_IN = .*/TCP_IN = \"22,53,80,$HTTPS_PORT,993,995\"/" /etc/csf/csf.conf
+    sed -i "s/TCP_OUT = .*/TCP_OUT = \"22,25,53,80,110,$HTTPS_PORT,587,993,995\"/" /etc/csf/csf.conf
     
     # Disable UFW if it's enabled
     ufw --force disable 2>/dev/null || true
@@ -1465,24 +1261,24 @@ backend = %(sshd_backend)s
 
 [apache-auth]
 enabled = true
-port = 80,$HTTPS_PORT,$SECURE_PORT
+port = 80,$HTTPS_PORT
 logpath = %(apache_error_log)s
 
 [apache-badbots]
 enabled = true
-port = 80,$HTTPS_PORT,$SECURE_PORT
+port = 80,$HTTPS_PORT
 logpath = %(apache_access_log)s
 bantime = 86400
 maxretry = 1
 
 [apache-noscript]
 enabled = true
-port = 80,$HTTPS_PORT,$SECURE_PORT
+port = 80,$HTTPS_PORT
 logpath = %(apache_access_log)s
 
 [apache-overflows]
 enabled = true
-port = 80,$HTTPS_PORT,$SECURE_PORT
+port = 80,$HTTPS_PORT
 logpath = %(apache_error_log)s
 maxretry = 2
 EOF
@@ -1663,14 +1459,9 @@ display_installation_summary() {
     
     echo -e "\n${CYAN}🚀 Next Steps${NC}"
     echo "================================"
-    echo "1. Point your domain DNS to this server's IP: $SERVER_IP"
-    echo "   - A record: $MAIN_DOMAIN -> $SERVER_IP"
-    echo "   - A record: *.$MAIN_DOMAIN -> $SERVER_IP"
-    echo "2. Run wildcard SSL: certbot --$WEB_SERVER -d $MAIN_DOMAIN -d *.$MAIN_DOMAIN --preferred-challenges dns"
-    echo "3. Visit your panel URLs to complete setup:"
-    echo "   - Main site: https://$MAIN_DOMAIN"
-    echo "   - Admin panel: https://$PANEL_SUBDOMAIN or https://$MAIN_DOMAIN/panel"
-    echo "   - Database: https://$PHYNXADMIN_SUBDOMAIN or https://$MAIN_DOMAIN/phynxadmin"
+    echo "1. Point your domain DNS to this server's IP"
+    echo "2. Run: certbot --apache -d $PANEL_DOMAIN (for Apache) or certbot --nginx -d $PANEL_DOMAIN (for Nginx)"
+    echo "3. Visit your panel URL to complete the web-based setup"
     echo "4. Change all default passwords immediately"
     echo "5. Review and customize the configuration in $ENV_FILE"
     
@@ -1757,8 +1548,8 @@ Configuration Files:
 - Credentials: /root/.phynx_credentials
 - Installation Log: $LOG_FILE
 
-To enable HTTPS with wildcard certificate:
-certbot --$WEB_SERVER -d $MAIN_DOMAIN -d *.$MAIN_DOMAIN --email $ADMIN_EMAIL --agree-tos --non-interactive --preferred-challenges dns
+To enable HTTPS:
+certbot --$WEB_SERVER -d $PANEL_DOMAIN --email $ADMIN_EMAIL --agree-tos --non-interactive
 
 Services Status:
 $(for service in "${services[@]}"; do
@@ -1818,11 +1609,10 @@ show_help() {
     echo ""
     echo "Options:"
     echo "  --web-server=apache|nginx   Choose web server (default: apache)"
-    echo "  --domain=example.com        Set main domain (creates *.domain structure)"
+    echo "  --domain=example.com        Set panel domain name"
     echo "  --email=admin@example.com   Set admin email address"
     echo "  --http-port=PORT            Set custom HTTP port (default: 80)"
-    echo "  --https-port=PORT           Set custom HTTPS port (default: 443)"
-    echo "  --secure-port=PORT          Set secure admin port (default: 2083)"
+    echo "  --https-port=PORT           Set custom HTTPS port (default: 2083)"
     echo "  --no-pma                    Skip custom Phynx deployment"
     echo "  --no-bind                   Skip BIND9 DNS server installation"
     echo "  --csf                       Install CSF/LFD instead of UFW firewall"
@@ -1830,11 +1620,10 @@ show_help() {
     echo "  --help, -h                  Show this help message"
     echo ""
     echo "Examples:"
-    echo "  $0                                    # Interactive installation (uses phynx.one)"
-    echo "  $0 --domain=yourdomain.com           # Creates *.yourdomain.com structure"
-    echo "  $0 --web-server=nginx --domain=hosting.company.com"
+    echo "  $0                                    # Interactive installation with prompts"
+    echo "  $0 --web-server=nginx --domain=panel.mydomain.com"
     echo "  $0 --no-pma --csf                   # Skip phpMyAdmin, use CSF firewall"
-    echo "  $0 --domain=server.net --secure-port=8443 --email=admin@server.net"
+    echo "  $0 --domain=panel.site.com --email=admin@site.com --https-port=8443"
 }
 
 # Parse command line arguments
@@ -1845,10 +1634,7 @@ parse_arguments() {
                 WEB_SERVER="${1#*=}"
                 ;;
             --domain=*)
-                MAIN_DOMAIN="${1#*=}"
-                PANEL_SUBDOMAIN="panel.$MAIN_DOMAIN"
-                PHYNXADMIN_SUBDOMAIN="phynxadmin.$MAIN_DOMAIN"
-                PANEL_DOMAIN="$MAIN_DOMAIN"
+                PANEL_DOMAIN="${1#*=}"
                 ;;
             --email=*)
                 ADMIN_EMAIL="${1#*=}"
@@ -1858,9 +1644,6 @@ parse_arguments() {
                 ;;
             --https-port=*)
                 HTTPS_PORT="${1#*=}"
-                ;;
-            --secure-port=*)
-                SECURE_PORT="${1#*=}"
                 ;;
             --no-pma)
                 INSTALL_PMA="no"
@@ -1896,26 +1679,15 @@ prompt_for_missing_config() {
     # Prompt for domain if using default
     local default_domain="panel.$(hostname -f 2>/dev/null || echo 'localhost')"
     if [[ "$PANEL_DOMAIN" == "$default_domain" ]]; then
-        echo -e "${YELLOW}🌐 Domain Configuration:${NC}"
-        echo "Current main domain: $MAIN_DOMAIN"
-        echo "This will create:"
-        echo "  • Main site: $MAIN_DOMAIN"
-        echo "  • Admin panel: $PANEL_SUBDOMAIN"
-        echo "  • Database manager: $PHYNXADMIN_SUBDOMAIN"
-        echo "  • Server IP access: $SERVER_IP"
+        echo -e "${YELLOW}Domain Configuration:${NC}"
+        echo "Current domain: $PANEL_DOMAIN"
         echo ""
-        read -p "Enter your custom main domain (or press Enter to use $MAIN_DOMAIN): " custom_domain
+        read -p "Enter your custom domain (or press Enter to use default): " custom_domain
         if [[ -n "$custom_domain" ]]; then
-            MAIN_DOMAIN="$custom_domain"
-            PANEL_SUBDOMAIN="panel.$MAIN_DOMAIN"
-            PHYNXADMIN_SUBDOMAIN="phynxadmin.$MAIN_DOMAIN"
-            PANEL_DOMAIN="$MAIN_DOMAIN"
-            echo -e "${GREEN}✓${NC} Domain structure updated:"
-            echo "  • Main site: $MAIN_DOMAIN"
-            echo "  • Admin panel: $PANEL_SUBDOMAIN"
-            echo "  • Database manager: $PHYNXADMIN_SUBDOMAIN"
+            PANEL_DOMAIN="$custom_domain"
+            echo -e "${GREEN}✓${NC} Domain set to: $PANEL_DOMAIN"
         else
-            echo -e "${YELLOW}!${NC} Using default domain structure for $MAIN_DOMAIN"
+            echo -e "${YELLOW}!${NC} Using default domain: $PANEL_DOMAIN"
         fi
         echo ""
     fi
@@ -2030,20 +1802,18 @@ display_installation_summary() {
     echo ""
     echo -e "${CYAN}🎉 Phynx Hosting Panel has been successfully installed!${NC}"
     echo ""
-    echo -e "${YELLOW}🌐 Access URLs:${NC}"
-    echo -e "${CYAN}Main Website:${NC}"
-    echo -e "• ${GREEN}HTTP${NC}:  http://$MAIN_DOMAIN (IP: http://$SERVER_IP)"
-    echo -e "• ${GREEN}HTTPS${NC}: https://$MAIN_DOMAIN (after SSL setup)"
+    echo -e "${YELLOW}Access URLs:${NC}"
+    echo -e "• ${GREEN}HTTP${NC}:  http://$SERVER_IP"
+    echo -e "• ${GREEN}HTTPS${NC}: https://$SERVER_IP:$HTTPS_PORT (after SSL setup)"
     echo ""
-    echo -e "${CYAN}Admin Panel Access:${NC}"
-    echo -e "• ${GREEN}Subdomain${NC}: http://$PANEL_SUBDOMAIN"
-    echo -e "• ${GREEN}Directory${NC}: http://$MAIN_DOMAIN/panel"
-    echo -e "• ${GREEN}Secure Port${NC}: https://$MAIN_DOMAIN:$SECURE_PORT (after SSL)"
-    echo ""
-    echo -e "${CYAN}Database Manager Access:${NC}"
+    if [[ "$PANEL_DOMAIN" != "panel.$(hostname -f 2>/dev/null || echo 'localhost')" ]]; then
+        echo -e "• ${GREEN}Domain HTTP${NC}:  http://$PANEL_DOMAIN"
+        echo -e "• ${GREEN}Domain HTTPS${NC}: https://$PANEL_DOMAIN:$HTTPS_PORT (after SSL setup)"
+        echo ""
+    fi
+    echo -e "${YELLOW}Database Access:${NC}"
     if [[ -d "$PMA_DIR" ]]; then
-        echo -e "• ${GREEN}Subdomain${NC}: http://$PHYNXADMIN_SUBDOMAIN"
-        echo -e "• ${GREEN}Directory${NC}: http://$MAIN_DOMAIN/phynxadmin"
+        echo -e "• ${GREEN}Phynx DB Manager${NC}: http://$SERVER_IP/phynx"
     fi
     echo ""
     echo -e "${YELLOW}Default Admin Credentials:${NC}"
@@ -2051,13 +1821,10 @@ display_installation_summary() {
     echo -e "• ${GREEN}Password${NC}: admin123 (please change immediately)"
     echo ""
     echo -e "${YELLOW}Next Steps:${NC}"
-    echo -e "1. Set up DNS records for your domain:"
-    echo -e "   • Point $MAIN_DOMAIN to $SERVER_IP"
-    echo -e "   • Point *.$MAIN_DOMAIN to $SERVER_IP" 
-    echo -e "2. Install wildcard SSL certificate:"
-    echo -e "   • certbot --$WEB_SERVER -d $MAIN_DOMAIN -d *.$MAIN_DOMAIN --preferred-challenges dns"
-    echo -e "3. Change the default admin password"
-    echo -e "4. Review firewall settings"
+    echo -e "1. Change the default admin password"
+    echo -e "2. Configure SSL certificate with: certbot --apache -d $PANEL_DOMAIN --http-01-port 80 --https-port $HTTPS_PORT"
+    echo -e "3. Review firewall settings"
+    echo -e "4. Configure DNS settings if needed"
     echo ""
     echo -e "${CYAN}Log file: $LOG_FILE${NC}"
 }
@@ -2088,16 +1855,12 @@ main() {
     check_ubuntu_version
     
     # Confirm installation
-    echo -e "${YELLOW}🔧 Installation Configuration:${NC}"
-    echo "• Main Domain: $MAIN_DOMAIN"  
-    echo "• Admin Panel: $PANEL_SUBDOMAIN"
-    echo "• Database Manager: $PHYNXADMIN_SUBDOMAIN"
-    echo "• Server IP: $SERVER_IP"
+    echo -e "${YELLOW}Installation Configuration:${NC}"
+    echo "• Panel Domain: $PANEL_DOMAIN"
     echo "• Admin Email: $ADMIN_EMAIL"
     echo "• Web Server: $WEB_SERVER"
     echo "• HTTP Port: 80"
-    echo "• HTTPS Port: $HTTPS_PORT" 
-    echo "• Secure Port: $SECURE_PORT"
+    echo "• HTTPS Port: $HTTPS_PORT"
     echo "• Deploy custom Phynx: $INSTALL_PMA"
     echo "• Install BIND9: $INSTALL_BIND"
     echo "• Use CSF Firewall: $INSTALL_CSF"

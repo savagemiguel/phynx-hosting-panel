@@ -1465,24 +1465,24 @@ backend = %(sshd_backend)s
 
 [apache-auth]
 enabled = true
-port = 80,$HTTPS_PORT,$SECURE_PORT
+port = 80,$HTTPS_PORT
 logpath = %(apache_error_log)s
 
 [apache-badbots]
 enabled = true
-port = 80,$HTTPS_PORT,$SECURE_PORT
+port = 80,$HTTPS_PORT
 logpath = %(apache_access_log)s
 bantime = 86400
 maxretry = 1
 
 [apache-noscript]
 enabled = true
-port = 80,$HTTPS_PORT,$SECURE_PORT
+port = 80,$HTTPS_PORT
 logpath = %(apache_access_log)s
 
 [apache-overflows]
 enabled = true
-port = 80,$HTTPS_PORT,$SECURE_PORT
+port = 80,$HTTPS_PORT
 logpath = %(apache_error_log)s
 maxretry = 2
 EOF
@@ -1818,11 +1818,10 @@ show_help() {
     echo ""
     echo "Options:"
     echo "  --web-server=apache|nginx   Choose web server (default: apache)"
-    echo "  --domain=example.com        Set main domain (creates *.domain structure)"
+    echo "  --domain=example.com        Set panel domain name"
     echo "  --email=admin@example.com   Set admin email address"
     echo "  --http-port=PORT            Set custom HTTP port (default: 80)"
-    echo "  --https-port=PORT           Set custom HTTPS port (default: 443)"
-    echo "  --secure-port=PORT          Set secure admin port (default: 2083)"
+    echo "  --https-port=PORT           Set custom HTTPS port (default: 2083)"
     echo "  --no-pma                    Skip custom Phynx deployment"
     echo "  --no-bind                   Skip BIND9 DNS server installation"
     echo "  --csf                       Install CSF/LFD instead of UFW firewall"
@@ -1830,11 +1829,10 @@ show_help() {
     echo "  --help, -h                  Show this help message"
     echo ""
     echo "Examples:"
-    echo "  $0                                    # Interactive installation (uses phynx.one)"
-    echo "  $0 --domain=yourdomain.com           # Creates *.yourdomain.com structure"
-    echo "  $0 --web-server=nginx --domain=hosting.company.com"
+    echo "  $0                                    # Interactive installation with prompts"
+    echo "  $0 --web-server=nginx --domain=panel.mydomain.com"
     echo "  $0 --no-pma --csf                   # Skip phpMyAdmin, use CSF firewall"
-    echo "  $0 --domain=server.net --secure-port=8443 --email=admin@server.net"
+    echo "  $0 --domain=panel.site.com --email=admin@site.com --https-port=8443"
 }
 
 # Parse command line arguments
@@ -1845,10 +1843,7 @@ parse_arguments() {
                 WEB_SERVER="${1#*=}"
                 ;;
             --domain=*)
-                MAIN_DOMAIN="${1#*=}"
-                PANEL_SUBDOMAIN="panel.$MAIN_DOMAIN"
-                PHYNXADMIN_SUBDOMAIN="phynxadmin.$MAIN_DOMAIN"
-                PANEL_DOMAIN="$MAIN_DOMAIN"
+                PANEL_DOMAIN="${1#*=}"
                 ;;
             --email=*)
                 ADMIN_EMAIL="${1#*=}"
@@ -1858,9 +1853,6 @@ parse_arguments() {
                 ;;
             --https-port=*)
                 HTTPS_PORT="${1#*=}"
-                ;;
-            --secure-port=*)
-                SECURE_PORT="${1#*=}"
                 ;;
             --no-pma)
                 INSTALL_PMA="no"
@@ -1896,26 +1888,15 @@ prompt_for_missing_config() {
     # Prompt for domain if using default
     local default_domain="panel.$(hostname -f 2>/dev/null || echo 'localhost')"
     if [[ "$PANEL_DOMAIN" == "$default_domain" ]]; then
-        echo -e "${YELLOW}🌐 Domain Configuration:${NC}"
-        echo "Current main domain: $MAIN_DOMAIN"
-        echo "This will create:"
-        echo "  • Main site: $MAIN_DOMAIN"
-        echo "  • Admin panel: $PANEL_SUBDOMAIN"
-        echo "  • Database manager: $PHYNXADMIN_SUBDOMAIN"
-        echo "  • Server IP access: $SERVER_IP"
+        echo -e "${YELLOW}Domain Configuration:${NC}"
+        echo "Current domain: $PANEL_DOMAIN"
         echo ""
-        read -p "Enter your custom main domain (or press Enter to use $MAIN_DOMAIN): " custom_domain
+        read -p "Enter your custom domain (or press Enter to use default): " custom_domain
         if [[ -n "$custom_domain" ]]; then
-            MAIN_DOMAIN="$custom_domain"
-            PANEL_SUBDOMAIN="panel.$MAIN_DOMAIN"
-            PHYNXADMIN_SUBDOMAIN="phynxadmin.$MAIN_DOMAIN"
-            PANEL_DOMAIN="$MAIN_DOMAIN"
-            echo -e "${GREEN}✓${NC} Domain structure updated:"
-            echo "  • Main site: $MAIN_DOMAIN"
-            echo "  • Admin panel: $PANEL_SUBDOMAIN"
-            echo "  • Database manager: $PHYNXADMIN_SUBDOMAIN"
+            PANEL_DOMAIN="$custom_domain"
+            echo -e "${GREEN}✓${NC} Domain set to: $PANEL_DOMAIN"
         else
-            echo -e "${YELLOW}!${NC} Using default domain structure for $MAIN_DOMAIN"
+            echo -e "${YELLOW}!${NC} Using default domain: $PANEL_DOMAIN"
         fi
         echo ""
     fi
@@ -2030,20 +2011,18 @@ display_installation_summary() {
     echo ""
     echo -e "${CYAN}🎉 Phynx Hosting Panel has been successfully installed!${NC}"
     echo ""
-    echo -e "${YELLOW}🌐 Access URLs:${NC}"
-    echo -e "${CYAN}Main Website:${NC}"
-    echo -e "• ${GREEN}HTTP${NC}:  http://$MAIN_DOMAIN (IP: http://$SERVER_IP)"
-    echo -e "• ${GREEN}HTTPS${NC}: https://$MAIN_DOMAIN (after SSL setup)"
+    echo -e "${YELLOW}Access URLs:${NC}"
+    echo -e "• ${GREEN}HTTP${NC}:  http://$SERVER_IP"
+    echo -e "• ${GREEN}HTTPS${NC}: https://$SERVER_IP:$HTTPS_PORT (after SSL setup)"
     echo ""
-    echo -e "${CYAN}Admin Panel Access:${NC}"
-    echo -e "• ${GREEN}Subdomain${NC}: http://$PANEL_SUBDOMAIN"
-    echo -e "• ${GREEN}Directory${NC}: http://$MAIN_DOMAIN/panel"
-    echo -e "• ${GREEN}Secure Port${NC}: https://$MAIN_DOMAIN:$SECURE_PORT (after SSL)"
-    echo ""
-    echo -e "${CYAN}Database Manager Access:${NC}"
+    if [[ "$PANEL_DOMAIN" != "panel.$(hostname -f 2>/dev/null || echo 'localhost')" ]]; then
+        echo -e "• ${GREEN}Domain HTTP${NC}:  http://$PANEL_DOMAIN"
+        echo -e "• ${GREEN}Domain HTTPS${NC}: https://$PANEL_DOMAIN:$HTTPS_PORT (after SSL setup)"
+        echo ""
+    fi
+    echo -e "${YELLOW}Database Access:${NC}"
     if [[ -d "$PMA_DIR" ]]; then
-        echo -e "• ${GREEN}Subdomain${NC}: http://$PHYNXADMIN_SUBDOMAIN"
-        echo -e "• ${GREEN}Directory${NC}: http://$MAIN_DOMAIN/phynxadmin"
+        echo -e "• ${GREEN}Phynx DB Manager${NC}: http://$SERVER_IP/phynx"
     fi
     echo ""
     echo -e "${YELLOW}Default Admin Credentials:${NC}"
@@ -2088,16 +2067,12 @@ main() {
     check_ubuntu_version
     
     # Confirm installation
-    echo -e "${YELLOW}🔧 Installation Configuration:${NC}"
-    echo "• Main Domain: $MAIN_DOMAIN"  
-    echo "• Admin Panel: $PANEL_SUBDOMAIN"
-    echo "• Database Manager: $PHYNXADMIN_SUBDOMAIN"
-    echo "• Server IP: $SERVER_IP"
+    echo -e "${YELLOW}Installation Configuration:${NC}"
+    echo "• Panel Domain: $PANEL_DOMAIN"
     echo "• Admin Email: $ADMIN_EMAIL"
     echo "• Web Server: $WEB_SERVER"
     echo "• HTTP Port: 80"
-    echo "• HTTPS Port: $HTTPS_PORT" 
-    echo "• Secure Port: $SECURE_PORT"
+    echo "• HTTPS Port: $HTTPS_PORT"
     echo "• Deploy custom Phynx: $INSTALL_PMA"
     echo "• Install BIND9: $INSTALL_BIND"
     echo "• Use CSF Firewall: $INSTALL_CSF"

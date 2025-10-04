@@ -1818,11 +1818,10 @@ show_help() {
     echo ""
     echo "Options:"
     echo "  --web-server=apache|nginx   Choose web server (default: apache)"
-    echo "  --domain=example.com        Set main domain (creates *.domain structure)"
+    echo "  --domain=example.com        Set panel domain name"
     echo "  --email=admin@example.com   Set admin email address"
     echo "  --http-port=PORT            Set custom HTTP port (default: 80)"
-    echo "  --https-port=PORT           Set custom HTTPS port (default: 443)"
-    echo "  --secure-port=PORT          Set secure admin port (default: 2083)"
+    echo "  --https-port=PORT           Set custom HTTPS port (default: 2083)"
     echo "  --no-pma                    Skip custom Phynx deployment"
     echo "  --no-bind                   Skip BIND9 DNS server installation"
     echo "  --csf                       Install CSF/LFD instead of UFW firewall"
@@ -1830,11 +1829,10 @@ show_help() {
     echo "  --help, -h                  Show this help message"
     echo ""
     echo "Examples:"
-    echo "  $0                                    # Interactive installation (uses phynx.one)"
-    echo "  $0 --domain=yourdomain.com           # Creates *.yourdomain.com structure"
-    echo "  $0 --web-server=nginx --domain=hosting.company.com"
+    echo "  $0                                    # Interactive installation with prompts"
+    echo "  $0 --web-server=nginx --domain=panel.mydomain.com"
     echo "  $0 --no-pma --csf                   # Skip phpMyAdmin, use CSF firewall"
-    echo "  $0 --domain=server.net --secure-port=8443 --email=admin@server.net"
+    echo "  $0 --domain=panel.site.com --email=admin@site.com --https-port=8443"
 }
 
 # Parse command line arguments
@@ -1845,10 +1843,7 @@ parse_arguments() {
                 WEB_SERVER="${1#*=}"
                 ;;
             --domain=*)
-                MAIN_DOMAIN="${1#*=}"
-                PANEL_SUBDOMAIN="panel.$MAIN_DOMAIN"
-                PHYNXADMIN_SUBDOMAIN="phynxadmin.$MAIN_DOMAIN"
-                PANEL_DOMAIN="$MAIN_DOMAIN"
+                PANEL_DOMAIN="${1#*=}"
                 ;;
             --email=*)
                 ADMIN_EMAIL="${1#*=}"
@@ -1858,9 +1853,6 @@ parse_arguments() {
                 ;;
             --https-port=*)
                 HTTPS_PORT="${1#*=}"
-                ;;
-            --secure-port=*)
-                SECURE_PORT="${1#*=}"
                 ;;
             --no-pma)
                 INSTALL_PMA="no"
@@ -1896,26 +1888,15 @@ prompt_for_missing_config() {
     # Prompt for domain if using default
     local default_domain="panel.$(hostname -f 2>/dev/null || echo 'localhost')"
     if [[ "$PANEL_DOMAIN" == "$default_domain" ]]; then
-        echo -e "${YELLOW}🌐 Domain Configuration:${NC}"
-        echo "Current main domain: $MAIN_DOMAIN"
-        echo "This will create:"
-        echo "  • Main site: $MAIN_DOMAIN"
-        echo "  • Admin panel: $PANEL_SUBDOMAIN"
-        echo "  • Database manager: $PHYNXADMIN_SUBDOMAIN"
-        echo "  • Server IP access: $SERVER_IP"
+        echo -e "${YELLOW}Domain Configuration:${NC}"
+        echo "Current domain: $PANEL_DOMAIN"
         echo ""
-        read -p "Enter your custom main domain (or press Enter to use $MAIN_DOMAIN): " custom_domain
+        read -p "Enter your custom domain (or press Enter to use default): " custom_domain
         if [[ -n "$custom_domain" ]]; then
-            MAIN_DOMAIN="$custom_domain"
-            PANEL_SUBDOMAIN="panel.$MAIN_DOMAIN"
-            PHYNXADMIN_SUBDOMAIN="phynxadmin.$MAIN_DOMAIN"
-            PANEL_DOMAIN="$MAIN_DOMAIN"
-            echo -e "${GREEN}✓${NC} Domain structure updated:"
-            echo "  • Main site: $MAIN_DOMAIN"
-            echo "  • Admin panel: $PANEL_SUBDOMAIN"
-            echo "  • Database manager: $PHYNXADMIN_SUBDOMAIN"
+            PANEL_DOMAIN="$custom_domain"
+            echo -e "${GREEN}✓${NC} Domain set to: $PANEL_DOMAIN"
         else
-            echo -e "${YELLOW}!${NC} Using default domain structure for $MAIN_DOMAIN"
+            echo -e "${YELLOW}!${NC} Using default domain: $PANEL_DOMAIN"
         fi
         echo ""
     fi
