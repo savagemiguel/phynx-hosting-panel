@@ -496,8 +496,8 @@ install_panel_files() {
         
         # Set proper ownership and permissions
         chown -R www-data:www-data "$PANEL_DIR"
-        find "$PANEL_DIR" -type d -exec chmod 755 {} \\;
-        find "$PANEL_DIR" -type f -exec chmod 644 {} \\;
+        find "$PANEL_DIR" -type d -exec chmod 755 {} \;
+        find "$PANEL_DIR" -type f -exec chmod 644 {} \;
         
         # Make writable directories
         chmod 775 "$PANEL_DIR"/{logs,uploads,tmp,backups}
@@ -523,8 +523,8 @@ deploy_custom_pma() {
         
         # Set proper ownership and permissions
         chown -R www-data:www-data "$PMA_DIR"
-        find "$PMA_DIR" -type d -exec chmod 755 {} \\;
-        find "$PMA_DIR" -type f -exec chmod 644 {} \\;
+        find "$PMA_DIR" -type d -exec chmod 755 {} \;
+        find "$PMA_DIR" -type f -exec chmod 644 {} \;
         
         # Create necessary directories for Phynx
         mkdir -p "$PMA_DIR"/{tmp,uploads,save,upload}
@@ -630,7 +630,7 @@ configure_apache_vhost() {
         
         # PHP-FPM configuration
         <FilesMatch \\.php\$>
-            SetHandler "proxy:unix:/run/php/php8.1-fpm.sock|fcgi://localhost/"
+            SetHandler "proxy:unix:/run/php/php8.4-fpm.sock|fcgi://localhost/"
         </FilesMatch>
     </Directory>
     
@@ -642,7 +642,7 @@ configure_apache_vhost() {
         Require all granted
         
         <FilesMatch \\.php\$>
-            SetHandler "proxy:unix:/run/php/php8.1-fpm.sock|fcgi://localhost/"
+            SetHandler "proxy:unix:/run/php/php8.4-fpm.sock|fcgi://localhost/"
         </FilesMatch>
     </Directory>
     
@@ -714,7 +714,7 @@ server {
     }
     
     location ~ /pma/.*\\.php\$ {
-        fastcgi_pass unix:/run/php/php8.1-fpm.sock;
+        fastcgi_pass unix:/run/php/php8.4-fpm.sock;
         fastcgi_index index.php;
         fastcgi_param SCRIPT_FILENAME $PMA_DIR\$fastcgi_script_name;
         include fastcgi_params;
@@ -724,7 +724,7 @@ server {
     location ~ \\.php\$ {
         try_files \$uri =404;
         fastcgi_split_path_info ^(.+\\.php)(/.+)\$;
-        fastcgi_pass unix:/run/php/php8.1-fpm.sock;
+        fastcgi_pass unix:/run/php/php8.4-fpm.sock;
         fastcgi_index index.php;
         fastcgi_param SCRIPT_FILENAME \$realpath_root\$fastcgi_script_name;
         include fastcgi_params;
@@ -1079,7 +1079,7 @@ display_installation_summary() {
     echo "================================"
     echo -e "OS: ${GREEN}$(lsb_release -d | cut -f2)${NC}"
     echo -e "Web Server: ${GREEN}$WEB_SERVER${NC}"
-    echo -e "PHP Versions: ${GREEN}$(php8.1 -v | head -1 | cut -d' ' -f2), $(php8.2 -v | head -1 | cut -d' ' -f2)${NC}"
+    echo -e "PHP Versions: ${GREEN}$(php8.4 -v | head -1 | cut -d' ' -f2), $(php8.2 -v | head -1 | cut -d' ' -f2)${NC}"
     echo -e "MySQL Version: ${GREEN}$(mysql --version | cut -d' ' -f3 | cut -d',' -f1)${NC}"
     
     echo -e "\n${CYAN}🔒 Security Features${NC}"
@@ -1112,7 +1112,7 @@ display_installation_summary() {
     echo "================================"
     
     # Check service status
-    services=("mysql" "$WEB_SERVER" "php8.1-fpm" "fail2ban")
+    services=("mysql" "$WEB_SERVER" "php8.4-fpm" "fail2ban")
     if [[ "$INSTALL_BIND" == "yes" ]]; then
         services+=("bind9")
     fi
