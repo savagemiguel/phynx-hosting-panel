@@ -1151,10 +1151,13 @@ optimize_system() {
     apt-get autoclean
     
     # Set proper timezone
-    timedatectl set-timezone UTC 2>/dev/null || true
+    timedatectl set-timezone America/New_York 2>/dev/null || true
     
-    # Optimize MySQL for small servers
+    # Optimize MySQL for small servers (with error handling)
     if [[ ! -f /etc/mysql/mysql.conf.d/phynx-optimization.cnf ]]; then
+        log "Creating MySQL optimization configuration..."
+        
+        # Create optimization config
         cat > /etc/mysql/mysql.conf.d/phynx-optimization.cnf << EOF
 [mysqld]
 # Phynx Panel MySQL Optimization
@@ -1168,7 +1171,32 @@ max_connections = 100
 thread_cache_size = 8
 table_open_cache = 1024
 EOF
-        systemctl restart mysql
+        
+        # Test MySQL restart with optimization config
+        log "Testing MySQL with optimization settings..."
+        if systemctl restart mysql 2>/dev/null; then
+            log "MySQL optimization applied successfully"
+        else
+            warn "MySQL failed to start with optimization config, reverting..."
+            
+            # Remove the problematic config file
+            rm -f /etc/mysql/mysql.conf.d/phynx-optimization.cnf
+            
+            # Restart MySQL without optimization
+            if systemctl restart mysql 2>/dev/null; then
+                warn "MySQL restarted without optimization config"
+            else
+                err "MySQL failed to restart even without optimization config"
+                # Try to start MySQL service anyway for the rest of the installation
+                systemctl start mysql 2>/dev/null || warn "Could not start MySQL service"
+            fi
+        fi
+    fi
+    
+    # Ensure MySQL is running before completing optimization
+    if ! systemctl is-active --quiet mysql; then
+        warn "MySQL is not running after optimization, attempting to start..."
+        systemctl start mysql 2>/dev/null || warn "Could not start MySQL - manual intervention may be required"
     fi
     
     ok "System optimization completed"
