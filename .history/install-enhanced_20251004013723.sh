@@ -1410,7 +1410,7 @@ show_help() {
     echo "  --web-server=apache|nginx   Choose web server (default: apache)"
     echo "  --domain=example.com        Set panel domain name"
     echo "  --email=admin@example.com   Set admin email address"
-    echo "  --http-port=PORT            Set custom HTTP port (default: 80)"
+    echo "  --http-port=PORT            Set custom HTTP port (default: 2087)"
     echo "  --https-port=PORT           Set custom HTTPS port (default: 2083)"
     echo "  --no-pma                    Skip custom Phynx deployment"
     echo "  --no-bind                   Skip BIND9 DNS server installation"
@@ -1422,7 +1422,7 @@ show_help() {
     echo "  $0                                    # Interactive installation with prompts"
     echo "  $0 --web-server=nginx --domain=panel.mydomain.com"
     echo "  $0 --no-pma --csf                   # Skip phpMyAdmin, use CSF firewall"
-    echo "  $0 --domain=panel.site.com --email=admin@site.com --https-port=8443"
+    echo "  $0 --domain=panel.site.com --email=admin@site.com --http-port=8080"
 }
 
 # Parse command line arguments

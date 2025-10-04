@@ -350,7 +350,7 @@ fi
 
 # phpMyAdmin access
 if [[ -d "$PMA_DIR" ]]; then
-    echo -e "• ${GREEN}http://$SERVER_IP/phynx${NC} (Phynx Database Manager)"
+    echo -e "• ${GREEN}http://$SERVER_IP:$HTTP_PORT/phynx${NC} (Phynx Database Manager)"
 fi
 
 echo -e "\n${BLUE}Next Steps:${NC}"

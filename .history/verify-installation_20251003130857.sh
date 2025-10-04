@@ -14,10 +14,6 @@ NC='\033[0m'
 PANEL_DIR="/var/www/phynx"
 PMA_DIR="$PANEL_DIR/phynx"
 
-# Port Configuration
-HTTP_PORT="80"
-HTTPS_PORT="2083"
-
 print_banner() {
     clear
     echo -e "${BLUE}"
@@ -275,7 +271,6 @@ for version in "${PHP_VERSIONS[@]}"; do
         # Check required PHP modules for this version
         REQUIRED_MODULES=("mysql" "mbstring" "xml" "zip" "curl" "gd" "json")
         for module in "${REQUIRED_MODULES[@]}"; do
-            if php$version -m | grep -q "^$module$"; then
                 check_ok "PHP $version module '$module' loaded"
             else
                 check_warn "PHP $version module '$module' not loaded"
@@ -339,8 +334,7 @@ echo -e "\nIf everything looks good, access your panel at:"
 
 # Get server IP
 SERVER_IP=$(hostname -I | awk '{print $1}')
-echo -e "• ${GREEN}http://$SERVER_IP${NC} (Panel HTTP)"  
-echo -e "• ${GREEN}https://$SERVER_IP:$HTTPS_PORT${NC} (Panel HTTPS)"
+echo -e "• ${GREEN}http://$SERVER_IP${NC} (local IP)"
 
 # Check if domain is configured
 if [[ -f "$PANEL_DIR/.env" ]] && grep -q "PANEL_DOMAIN" "$PANEL_DIR/.env"; then

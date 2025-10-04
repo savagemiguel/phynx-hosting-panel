@@ -1422,7 +1422,7 @@ show_help() {
     echo "  $0                                    # Interactive installation with prompts"
     echo "  $0 --web-server=nginx --domain=panel.mydomain.com"
     echo "  $0 --no-pma --csf                   # Skip phpMyAdmin, use CSF firewall"
-    echo "  $0 --domain=panel.site.com --email=admin@site.com --https-port=8443"
+    echo "  $0 --domain=panel.site.com --email=admin@site.com --http-port=8080"
 }
 
 # Parse command line arguments

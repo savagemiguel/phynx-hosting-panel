@@ -14,10 +14,6 @@ NC='\033[0m'
 PANEL_DIR="/var/www/phynx"
 PMA_DIR="$PANEL_DIR/phynx"
 
-# Port Configuration
-HTTP_PORT="80"
-HTTPS_PORT="2083"
-
 print_banner() {
     clear
     echo -e "${BLUE}"
@@ -265,22 +261,17 @@ fi
 
 print_section "PHP Configuration"
 
-# Check PHP versions and modules
-PHP_VERSIONS=("8.1" "8.2" "8.3" "8.4")
-for version in "${PHP_VERSIONS[@]}"; do
-    if command -v "php$version" &> /dev/null; then
-        PHP_VERSION=$(php$version -v | head -1 | cut -d' ' -f2)
-        check_ok "PHP $version installed: $PHP_VERSION"
-        
-        # Check required PHP modules for this version
-        REQUIRED_MODULES=("mysql" "mbstring" "xml" "zip" "curl" "gd" "json")
-        for module in "${REQUIRED_MODULES[@]}"; do
-            if php$version -m | grep -q "^$module$"; then
-                check_ok "PHP $version module '$module' loaded"
-            else
-                check_warn "PHP $version module '$module' not loaded"
-            fi
-        done
+# Check PHP version and modules
+PHP_VERSION=$(php8.1 -v | head -1 | cut -d' ' -f2)
+check_ok "PHP version: $PHP_VERSION"
+
+# Check required PHP modules
+REQUIRED_MODULES=("mysql" "mbstring" "xml" "zip" "curl" "gd" "json")
+for module in "${REQUIRED_MODULES[@]}"; do
+    if php8.1 -m | grep -q "^$module$"; then
+        check_ok "PHP module '$module' loaded"
+    else
+        check_fail "PHP module '$module' not loaded"
     fi
 done
 
@@ -311,8 +302,7 @@ print_section "Quick Fixes for Common Issues"
 echo -e "\nIf you encountered any ${RED}failures${NC} above, try these fixes:"
 echo ""
 echo "🔧 Service Issues:"
-echo "  sudo systemctl restart mysql apache2"
-echo "  sudo systemctl restart php8.1-fpm php8.2-fpm php8.3-fpm php8.4-fpm"
+echo "  sudo systemctl restart mysql apache2 php8.1-fpm"
 echo ""
 echo "🔧 Permission Issues:"
 echo "  sudo chown -R www-data:www-data $PANEL_DIR"
@@ -339,8 +329,7 @@ echo -e "\nIf everything looks good, access your panel at:"
 
 # Get server IP
 SERVER_IP=$(hostname -I | awk '{print $1}')
-echo -e "• ${GREEN}http://$SERVER_IP${NC} (Panel HTTP)"  
-echo -e "• ${GREEN}https://$SERVER_IP:$HTTPS_PORT${NC} (Panel HTTPS)"
+echo -e "• ${GREEN}http://$SERVER_IP${NC} (local IP)"
 
 # Check if domain is configured
 if [[ -f "$PANEL_DIR/.env" ]] && grep -q "PANEL_DOMAIN" "$PANEL_DIR/.env"; then

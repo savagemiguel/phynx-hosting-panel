@@ -38,8 +38,8 @@ PMA_DB_USER="phynx_user"
 APACHE_SITE="/etc/apache2/sites-available/$PANEL_NAME.conf"
 NGINX_SITE="/etc/nginx/sites-available/$PANEL_NAME"
 
-# Custom Port Configuration  
-HTTP_PORT="80"        # Standard HTTP port for hosting panel
+# Custom Port Configuration
+HTTP_PORT="2087"      # Custom HTTP port for hosting panel
 HTTPS_PORT="2083"     # Custom HTTPS port for hosting panel
 
 # DNS and SSL
@@ -53,7 +53,6 @@ INSTALL_BIND="yes"
 INSTALL_CSF="no"
 PANEL_DOMAIN="panel.$(hostname -f 2>/dev/null || echo 'localhost')"
 ADMIN_EMAIL="admin@$(hostname -d 2>/dev/null || echo 'localhost')"
-SILENT_MODE="no"
 
 # ===============================
 # Helper Functions
@@ -147,41 +146,13 @@ update_system() {
     ok "System updated successfully"
 }
 
-# Install MySQL server with special handling
-install_mysql_server() {
-    log "Installing MySQL server..."
-    
-    # Pre-configure MySQL to avoid interactive prompts
-    export DEBIAN_FRONTEND=noninteractive
-    
-    # Install MySQL packages
-    if ! apt-get install -y mysql-server mysql-client; then
-        err "Failed to install MySQL packages"
-        
-        # Try to fix package issues
-        log "Attempting to fix MySQL installation..."
-        apt-get update
-        apt-get install -f
-        
-        # Try again
-        if ! apt-get install -y mysql-server mysql-client; then
-            die "Could not install MySQL server. Please check package repositories."
-        fi
-    fi
-    
-    # Ensure MySQL service exists
-    if ! systemctl list-unit-files | grep -q mysql.service; then
-        die "MySQL service not found after installation"
-    fi
-    
-    ok "MySQL server installed successfully"
-}
-
 # Install required packages with better error handling
 install_core_packages() {
     log "Installing core system packages..."
     
     local CORE_PACKAGES=(
+        "mysql-server"
+        "mysql-client"
         "php8.3"
         "php8.3-fpm"
         "php8.3-mysql"
@@ -255,10 +226,9 @@ install_apache() {
     # Enable required modules
     a2enmod rewrite ssl proxy proxy_fcgi setenvif headers
     
-    # Configure custom HTTPS port (port 80 is already default in Apache)
-    if ! grep -q "Listen $HTTPS_PORT ssl" /etc/apache2/ports.conf; then
-        echo "Listen $HTTPS_PORT ssl" >> /etc/apache2/ports.conf
-    fi
+    # Configure custom ports
+    echo "Listen $HTTP_PORT" >> /etc/apache2/ports.conf
+    echo "Listen $HTTPS_PORT ssl" >> /etc/apache2/ports.conf
     
     # Configure Apache for PHP-FPM
     systemctl enable apache2
@@ -278,171 +248,35 @@ install_nginx() {
     ok "Nginx installed and configured"
 }
 
-# Configure and start MySQL service
-configure_mysql_service() {
-    log "Configuring MySQL service..."
-    
-    # Ensure MySQL directories exist with proper permissions
-    mkdir -p /var/run/mysqld /var/lib/mysql /var/log/mysql
-    chown mysql:mysql /var/run/mysqld /var/lib/mysql /var/log/mysql
-    chmod 755 /var/run/mysqld
-    
-    # Ensure MySQL service is installed and configured
-    systemctl stop mysql 2>/dev/null || true
-    
-    # Start and enable MySQL service
-    systemctl enable mysql
-    systemctl start mysql
-    
-    # Wait for MySQL to be ready
-    local count=0
-    local max_attempts=30
-    
-    log "Waiting for MySQL to start..."
-    while ! mysqladmin ping --silent 2>/dev/null && [ $count -lt $max_attempts ]; do
-        sleep 2
-        ((count++))
-        echo -n "."
-    done
-    echo ""
-    
-    if [ $count -eq $max_attempts ]; then
-        err "MySQL failed to start after $max_attempts attempts"
-        
-        # Try to get more information about the failure
-        log "MySQL service status:"
-        systemctl status mysql --no-pager || true
-        
-        log "MySQL error log:"
-        tail -20 /var/log/mysql/error.log 2>/dev/null || true
-        
-        # Try to restart MySQL with more debugging
-        log "Attempting MySQL restart..."
-        systemctl restart mysql
-        
-        # Wait again
-        count=0
-        while ! mysqladmin ping --silent 2>/dev/null && [ $count -lt 15 ]; do
-            sleep 2
-            ((count++))
-            echo -n "."
-        done
-        echo ""
-        
-        if ! mysqladmin ping --silent 2>/dev/null; then
-            warn "MySQL service still not responding. Running troubleshooting..."
-            if ! troubleshoot_mysql; then
-                die "MySQL service failed to start after troubleshooting. Please check system logs and try manual installation."
-            fi
-        fi
-    fi
-    
-    ok "MySQL service is running"
-}
-
 # MySQL security and configuration
 secure_mysql_installation() {
     log "Securing MySQL installation..."
-    
-    # Set non-interactive mode to prevent any prompts
-    export DEBIAN_FRONTEND=noninteractive
-    export MYSQL_PWD=""
-    
-    # Ensure MySQL is running first
-    configure_mysql_service
     
     # Generate strong random passwords
     MYSQL_ROOT_PASS=$(openssl rand -base64 32 | tr -d "=+/" | cut -c1-25)
     DB_PASS=$(openssl rand -base64 24 | tr -d "=+/" | cut -c1-20)
     PMA_DB_PASS=$(openssl rand -base64 24 | tr -d "=+/" | cut -c1-20)
     
-    # Simple and reliable MySQL root password setup
-    log "Setting MySQL root password..."
-    
-    # Try different authentication methods for fresh MySQL installations
-    local password_set=false
-    
-    # Method 1: Try with no password (common on fresh installs)
-    if mysql -u root -e "ALTER USER 'root'@'localhost' IDENTIFIED WITH mysql_native_password BY '$MYSQL_ROOT_PASS';" 2>/dev/null; then
-        log "Root password set using direct method (no existing password)"
-        password_set=true
-    # Method 2: Try with debian-sys-maint credentials
-    elif mysql --defaults-file=/etc/mysql/debian.cnf -e "ALTER USER 'root'@'localhost' IDENTIFIED WITH mysql_native_password BY '$MYSQL_ROOT_PASS';" 2>/dev/null; then
-        log "Root password set using debian-sys-maint credentials"
-        password_set=true
-    # Method 3: Try mysql_secure_installation style approach
-    elif mysql -u root -e "SET PASSWORD FOR 'root'@'localhost' = PASSWORD('$MYSQL_ROOT_PASS');" 2>/dev/null; then
-        log "Root password set using SET PASSWORD method"
-        password_set=true
-    # Method 4: Try alternative MySQL 8.0 method
-    elif mysql -u root -e "ALTER USER 'root'@'localhost' IDENTIFIED BY '$MYSQL_ROOT_PASS';" 2>/dev/null; then
-        log "Root password set using ALTER USER method"
-        password_set=true
-    else
-        warn "Standard methods failed, trying alternative approach..."
-        
-        # Use dpkg-reconfigure for MySQL (non-interactive)
-        echo "mysql-server mysql-server/root_password password $MYSQL_ROOT_PASS" | debconf-set-selections
-        echo "mysql-server mysql-server/root_password_again password $MYSQL_ROOT_PASS" | debconf-set-selections
-        
-        # Restart MySQL and try again
-        systemctl restart mysql
-        sleep 3
-        
-        if mysql -u root -p"$MYSQL_ROOT_PASS" -e "SELECT 1;" 2>/dev/null; then
-            log "Root password set using dpkg-reconfigure method"
-            password_set=true
-        fi
-    fi
-    
-    if [ "$password_set" = false ]; then
-        warn "Could not set MySQL root password using standard methods"
-        log "MySQL will continue with default authentication - you can set password manually later"
-        # Generate a random password but don't set it
-        MYSQL_ROOT_PASS="NOT_SET_USE_DEFAULT_AUTH"
-    fi
-    
-    # Verify password access
-    if [ "$password_set" = true ]; then
-        log "Verifying MySQL root access..."
-        if mysql -u root -p"$MYSQL_ROOT_PASS" -e "SELECT 1;" 2>/dev/null; then
-            ok "MySQL root password verified successfully"
-        else
-            warn "Password verification failed, but continuing with installation"
-        fi
-    fi
-    # Set up MySQL authentication for operations
-    local mysql_auth=""
-    if [ "$MYSQL_ROOT_PASS" != "NOT_SET_USE_DEFAULT_AUTH" ]; then
-        mysql_auth="-p$MYSQL_ROOT_PASS"
-        export MYSQL_PWD="$MYSQL_ROOT_PASS"
-    fi
-    
-    # Secure MySQL installation (remove anonymous users, test database, etc.)
-    log "Applying MySQL security settings..."
-    mysql -u root $mysql_auth -e "DELETE FROM mysql.user WHERE User='';" 2>/dev/null || warn "Could not remove anonymous users"
-    mysql -u root $mysql_auth -e "DELETE FROM mysql.user WHERE User='root' AND Host NOT IN ('localhost', '127.0.0.1', '::1');" 2>/dev/null || warn "Could not remove remote root access"
-    mysql -u root $mysql_auth -e "DROP DATABASE IF EXISTS test;" 2>/dev/null || warn "Test database not found"
-    mysql -u root $mysql_auth -e "DELETE FROM mysql.db WHERE Db='test' OR Db='test\\_%';" 2>/dev/null || warn "Could not remove test database privileges"
-    mysql -u root $mysql_auth -e "FLUSH PRIVILEGES;" || warn "Could not flush MySQL privileges"
+    # Secure MySQL installation
+    mysql -e "ALTER USER 'root'@'localhost' IDENTIFIED WITH mysql_native_password BY '$MYSQL_ROOT_PASS';" || true
+    mysql -u root -p"$MYSQL_ROOT_PASS" -e "DELETE FROM mysql.user WHERE User='';" 2>/dev/null || true
+    mysql -u root -p"$MYSQL_ROOT_PASS" -e "DELETE FROM mysql.user WHERE User='root' AND Host NOT IN ('localhost', '127.0.0.1', '::1');" 2>/dev/null || true
+    mysql -u root -p"$MYSQL_ROOT_PASS" -e "DROP DATABASE IF EXISTS test;" 2>/dev/null || true
+    mysql -u root -p"$MYSQL_ROOT_PASS" -e "DELETE FROM mysql.db WHERE Db='test' OR Db='test\\_%';" 2>/dev/null || true
+    mysql -u root -p"$MYSQL_ROOT_PASS" -e "FLUSH PRIVILEGES;" 2>/dev/null || true
     
     # Create databases and users
-    log "Creating panel database and users..."
-    mysql -u root $mysql_auth -e "CREATE DATABASE IF NOT EXISTS $DB_NAME CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;" || die "Could not create panel database"
-    mysql -u root $mysql_auth -e "CREATE USER IF NOT EXISTS '$DB_USER'@'localhost' IDENTIFIED BY '$DB_PASS';" || die "Could not create panel database user"
-    mysql -u root $mysql_auth -e "GRANT ALL PRIVILEGES ON $DB_NAME.* TO '$DB_USER'@'localhost';" || die "Could not grant privileges to panel user"
+    mysql -u root -p"$MYSQL_ROOT_PASS" -e "CREATE DATABASE IF NOT EXISTS $DB_NAME CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
+    mysql -u root -p"$MYSQL_ROOT_PASS" -e "CREATE USER IF NOT EXISTS '$DB_USER'@'localhost' IDENTIFIED BY '$DB_PASS';"
+    mysql -u root -p"$MYSQL_ROOT_PASS" -e "GRANT ALL PRIVILEGES ON $DB_NAME.* TO '$DB_USER'@'localhost';"
     
     # Create database user for custom Phynx if deploying it
     if [[ "$INSTALL_PMA" == "yes" ]]; then
-        log "Creating Phynx database manager user..."
-        mysql -u root $mysql_auth -e "CREATE USER IF NOT EXISTS '$PMA_DB_USER'@'localhost' IDENTIFIED BY '$PMA_DB_PASS';" || die "Could not create Phynx database user"
-        mysql -u root $mysql_auth -e "GRANT ALL PRIVILEGES ON *.* TO '$PMA_DB_USER'@'localhost' WITH GRANT OPTION;" || die "Could not grant privileges to Phynx user"
+        mysql -u root -p"$MYSQL_ROOT_PASS" -e "CREATE USER IF NOT EXISTS '$PMA_DB_USER'@'localhost' IDENTIFIED BY '$PMA_DB_PASS';"
+        mysql -u root -p"$MYSQL_ROOT_PASS" -e "GRANT ALL PRIVILEGES ON *.* TO '$PMA_DB_USER'@'localhost' WITH GRANT OPTION;"
     fi
     
-    mysql -u root $mysql_auth -e "FLUSH PRIVILEGES;" || warn "Could not flush final MySQL privileges"
-    
-    # Clear password environment variable for security
-    unset MYSQL_PWD
+    mysql -u root -p"$MYSQL_ROOT_PASS" -e "FLUSH PRIVILEGES;"
     
     # Save credentials securely
     cat > /root/.phynx_credentials << EOF
@@ -459,73 +293,6 @@ EOF
     chmod 600 /root/.phynx_credentials
     
     ok "MySQL secured and databases created"
-}
-
-# Troubleshoot MySQL installation issues
-troubleshoot_mysql() {
-    log "Troubleshooting MySQL issues..."
-    
-    echo -e "${YELLOW}MySQL Service Status:${NC}"
-    systemctl status mysql --no-pager || true
-    echo ""
-    
-    echo -e "${YELLOW}MySQL Process Check:${NC}"
-    ps aux | grep mysql | grep -v grep || echo "No MySQL processes found"
-    echo ""
-    
-    echo -e "${YELLOW}MySQL Socket File Check:${NC}"
-    if [[ -S "/var/run/mysqld/mysqld.sock" ]]; then
-        echo "✓ MySQL socket file exists"
-        ls -la /var/run/mysqld/mysqld.sock
-    else
-        echo "✗ MySQL socket file missing"
-        echo "Socket directory contents:"
-        ls -la /var/run/mysqld/ 2>/dev/null || echo "Socket directory doesn't exist"
-    fi
-    echo ""
-    
-    echo -e "${YELLOW}MySQL Configuration Check:${NC}"
-    if [[ -f "/etc/mysql/mysql.conf.d/mysqld.cnf" ]]; then
-        echo "MySQL configuration file exists"
-        grep -E "socket|port|bind-address" /etc/mysql/mysql.conf.d/mysqld.cnf 2>/dev/null || true
-    fi
-    echo ""
-    
-    echo -e "${YELLOW}MySQL Error Log (last 20 lines):${NC}"
-    tail -20 /var/log/mysql/error.log 2>/dev/null || echo "Error log not found"
-    echo ""
-    
-    echo -e "${YELLOW}Disk Space Check:${NC}"
-    df -h /var/lib/mysql 2>/dev/null || df -h /
-    echo ""
-    
-    # Attempt to fix common issues
-    echo -e "${YELLOW}Attempting common fixes:${NC}"
-    
-    # Fix permissions
-    chown -R mysql:mysql /var/lib/mysql /var/log/mysql /var/run/mysqld 2>/dev/null || true
-    
-    # Create socket directory if missing
-    if [[ ! -d "/var/run/mysqld" ]]; then
-        mkdir -p /var/run/mysqld
-        chown mysql:mysql /var/run/mysqld
-        echo "✓ Created MySQL socket directory"
-    fi
-    
-    # Try to start MySQL again
-    echo "Attempting to restart MySQL service..."
-    systemctl stop mysql 2>/dev/null || true
-    sleep 3
-    systemctl start mysql
-    sleep 5
-    
-    if systemctl is-active --quiet mysql; then
-        echo -e "${GREEN}✓ MySQL service restarted successfully${NC}"
-        return 0
-    else
-        echo -e "${RED}✗ MySQL service still not running${NC}"
-        return 1
-    fi
 }
 
 # Install panel files
@@ -547,8 +314,8 @@ install_panel_files() {
         
         # Set proper ownership and permissions
         chown -R www-data:www-data "$PANEL_DIR"
-        find "$PANEL_DIR" -type d -exec chmod 755 {} \;
-        find "$PANEL_DIR" -type f -exec chmod 644 {} \;
+        find "$PANEL_DIR" -type d -exec chmod 755 {} \\;
+        find "$PANEL_DIR" -type f -exec chmod 644 {} \\;
         
         # Make writable directories
         chmod 775 "$PANEL_DIR"/{logs,uploads,tmp,backups}
@@ -574,8 +341,8 @@ deploy_custom_pma() {
         
         # Set proper ownership and permissions
         chown -R www-data:www-data "$PMA_DIR"
-        find "$PMA_DIR" -type d -exec chmod 755 {} \;
-        find "$PMA_DIR" -type f -exec chmod 644 {} \;
+        find "$PMA_DIR" -type d -exec chmod 755 {} \\;
+        find "$PMA_DIR" -type f -exec chmod 644 {} \\;
         
         # Create necessary directories for Phynx
         mkdir -p "$PMA_DIR"/{tmp,uploads,save,upload}
@@ -587,7 +354,7 @@ deploy_custom_pma() {
             source /root/.phynx_credentials
             
             # Create PMA config from template with database credentials
-            sed "s/{{PMA_DB_USER}}/$PMA_DB_USER/g; s/{{PMA_DB_PASSWORD}}/$PMA_DB_PASS/g" \
+            sed "s/{{PMA_DB_USER}}/$PMA_DB_USER/g; s/{{PMA_DB_PASSWORD}}/$PMA_DB_PASS/g" \\
                 "$PMA_DIR/config.sample.php" > "$PMA_DIR/config.inc.php"
             
             chown www-data:www-data "$PMA_DIR/config.inc.php"
@@ -604,7 +371,17 @@ deploy_custom_pma() {
 # Configure PHP for optimal performance
 configure_php() {
     log "Configuring PHP for production use..."
-        
+    
+    # Configure PHP 8.1
+    if [[ -f "/etc/php/8.1/fpm/php.ini" ]]; then
+        configure_php_ini "8.1"
+    fi
+    
+    # Configure PHP 8.2
+    if [[ -f "/etc/php/8.2/fpm/php.ini" ]]; then
+        configure_php_ini "8.2"
+    fi
+    
     # Configure PHP 8.3
     if [[ -f "/etc/php/8.3/fpm/php.ini" ]]; then
         configure_php_ini "8.3"
@@ -616,8 +393,12 @@ configure_php() {
     fi
     
     # Restart PHP-FPM services
+    systemctl restart php8.1-fpm 2>/dev/null || true
+    systemctl restart php8.2-fpm 2>/dev/null || true
     systemctl restart php8.3-fpm 2>/dev/null || true
     systemctl restart php8.4-fpm 2>/dev/null || true
+    systemctl enable php8.1-fpm 2>/dev/null || true
+    systemctl enable php8.2-fpm 2>/dev/null || true
     systemctl enable php8.3-fpm 2>/dev/null || true
     systemctl enable php8.4-fpm 2>/dev/null || true
     
@@ -659,10 +440,10 @@ configure_web_server() {
 }
 
 configure_apache_vhost() {
-    log "Creating Apache virtual host configuration for ports 80 and $HTTPS_PORT..."
+    log "Creating Apache virtual host configuration for ports $HTTP_PORT and $HTTPS_PORT..."
     
     cat > "$APACHE_SITE" << EOF
-<VirtualHost *:80>
+<VirtualHost *:$HTTP_PORT>
     ServerName $PANEL_DOMAIN
     DocumentRoot $PANEL_DIR
     
@@ -681,19 +462,19 @@ configure_apache_vhost() {
         
         # PHP-FPM configuration
         <FilesMatch \\.php\$>
-            SetHandler "proxy:unix:/run/php/php8.4-fpm.sock|fcgi://localhost/"
+            SetHandler "proxy:unix:/run/php/php8.1-fpm.sock|fcgi://localhost/"
         </FilesMatch>
     </Directory>
     
     # Custom phpMyAdmin location
-    Alias /phynxadmin "$PMA_DIR"
+    Alias /pma "$PMA_DIR"
     <Directory "$PMA_DIR">
         Options -Indexes +FollowSymLinks
         AllowOverride All
         Require all granted
         
         <FilesMatch \\.php\$>
-            SetHandler "proxy:unix:/run/php/php8.4-fpm.sock|fcgi://localhost/"
+            SetHandler "proxy:unix:/run/php/php8.1-fpm.sock|fcgi://localhost/"
         </FilesMatch>
     </Directory>
     
@@ -723,51 +504,8 @@ configure_apache_vhost() {
     # SSLEngine on
     # Include /etc/letsencrypt/options-ssl-apache.conf
     
-    # Security headers
-    Header always set X-Frame-Options "SAMEORIGIN"
-    Header always set X-XSS-Protection "1; mode=block"
-    Header always set X-Content-Type-Options "nosniff"
-    Header always set Referrer-Policy "strict-origin-when-cross-origin"
-    Header always set Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'"
-    
-    # Main directory
-    <Directory $PANEL_DIR>
-        Options -Indexes +FollowSymLinks
-        AllowOverride All
-        Require all granted
-        
-        # PHP-FPM configuration
-        <FilesMatch \\.php\$>
-            SetHandler "proxy:unix:/run/php/php8.4-fpm.sock|fcgi://localhost/"
-        </FilesMatch>
-    </Directory>
-    
-    # Custom phpMyAdmin location
-    Alias /phynxadmin "$PMA_DIR"
-    <Directory "$PMA_DIR">
-        Options -Indexes +FollowSymLinks
-        AllowOverride All
-        Require all granted
-        
-        <FilesMatch \\.php\$>
-            SetHandler "proxy:unix:/run/php/php8.4-fpm.sock|fcgi://localhost/"
-        </FilesMatch>
-    </Directory>
-    
-    # Deny access to sensitive files
-    <Files "config.php">
-        Require all denied
-    </Files>
-    <Files ".env">
-        Require all denied
-    </Files>
-    <FilesMatch "^\.">
-        Require all denied
-    </FilesMatch>
-    
-    # Logging
-    ErrorLog \${APACHE_LOG_DIR}/${PANEL_NAME}_ssl_error.log
-    CustomLog \${APACHE_LOG_DIR}/${PANEL_NAME}_ssl_access.log combined
+    # Same configuration as port 80
+    Include /etc/apache2/sites-available/${PANEL_NAME}.conf
 </VirtualHost>
 </IfModule>
 EOF
@@ -781,11 +519,11 @@ EOF
 }
 
 configure_nginx_vhost() {
-    log "Creating Nginx server block configuration for ports 80 and $HTTPS_PORT..."
+    log "Creating Nginx server block configuration for ports $HTTP_PORT and $HTTPS_PORT..."
     
     cat > "$NGINX_SITE" << EOF
 server {
-    listen 80;
+    listen $HTTP_PORT;
     server_name $PANEL_DOMAIN;
     root $PANEL_DIR;
     index index.php index.html;
@@ -808,7 +546,7 @@ server {
     }
     
     location ~ /pma/.*\\.php\$ {
-        fastcgi_pass unix:/run/php/php8.4-fpm.sock;
+        fastcgi_pass unix:/run/php/php8.1-fpm.sock;
         fastcgi_index index.php;
         fastcgi_param SCRIPT_FILENAME $PMA_DIR\$fastcgi_script_name;
         include fastcgi_params;
@@ -818,7 +556,7 @@ server {
     location ~ \\.php\$ {
         try_files \$uri =404;
         fastcgi_split_path_info ^(.+\\.php)(/.+)\$;
-        fastcgi_pass unix:/run/php/php8.4-fpm.sock;
+        fastcgi_pass unix:/run/php/php8.1-fpm.sock;
         fastcgi_index index.php;
         fastcgi_param SCRIPT_FILENAME \$realpath_root\$fastcgi_script_name;
         include fastcgi_params;
@@ -949,16 +687,8 @@ EOF
     touch "$DNS_ZONE_PATH/phynx-zones.conf"
     chown bind:bind "$DNS_ZONE_PATH/phynx-zones.conf"
     
-    # Enable and start BIND9 service (try both service names for compatibility)
-    if systemctl enable named 2>/dev/null; then
-        systemctl start named
-        log "BIND9 service enabled as 'named'"
-    elif systemctl enable bind9 2>/dev/null; then
-        systemctl start bind9
-        log "BIND9 service enabled as 'bind9'"
-    else
-        warn "Could not enable BIND9 service automatically"
-    fi
+    systemctl enable bind9
+    systemctl start bind9
     
     ok "BIND9 installed and configured"
 }
@@ -984,7 +714,7 @@ configure_ufw_firewall() {
     
     # Allow essential services
     ufw allow ssh
-    ufw allow 80/tcp
+    ufw allow $HTTP_PORT/tcp
     ufw allow $HTTPS_PORT/tcp
     
     # Allow DNS if BIND is installed
@@ -1003,40 +733,24 @@ install_csf_firewall() {
     
     # Download and install CSF
     cd /tmp
-    wget https://github.com/waytotheweb/scripts/raw/refs/heads/main/csf.tgz
+    wget https://download.configserver.com/csf.tgz
     tar -xzf csf.tgz
     cd csf
     sh install.sh
     
     # Basic CSF configuration
     sed -i 's/TESTING = "1"/TESTING = "0"/' /etc/csf/csf.conf
-    sed -i "s/TCP_IN = .*/TCP_IN = \"22,53,80,$HTTPS_PORT,993,995\"/" /etc/csf/csf.conf
-    sed -i "s/TCP_OUT = .*/TCP_OUT = \"22,25,53,80,110,$HTTPS_PORT,587,993,995\"/" /etc/csf/csf.conf
+    sed -i "s/TCP_IN = .*/TCP_IN = \"22,53,$HTTP_PORT,$HTTPS_PORT,993,995\"/" /etc/csf/csf.conf
+    sed -i "s/TCP_OUT = .*/TCP_OUT = \"22,25,53,$HTTP_PORT,110,$HTTPS_PORT,587,993,995\"/" /etc/csf/csf.conf
     
     # Disable UFW if it's enabled
     ufw --force disable 2>/dev/null || true
     
-    # Start CSF (handle systemd service issues)
-    log "Starting CSF/LFD services..."
-    
-    # Try to enable services, but don't fail if they can't be enabled
-    if ! systemctl enable csf 2>/dev/null; then
-        warn "Could not enable csf service automatically - will start manually"
-    fi
-    if ! systemctl enable lfd 2>/dev/null; then
-        warn "Could not enable lfd service automatically - will start manually"
-    fi
-    
-    # Start services
-    systemctl start csf 2>/dev/null || warn "CSF service failed to start"
-    systemctl start lfd 2>/dev/null || warn "LFD service failed to start"
-    
-    # Verify CSF is working
-    if /usr/sbin/csf -v >/dev/null 2>&1; then
-        log "CSF firewall is active and working"
-    else
-        warn "CSF may not be working properly - check configuration manually"
-    fi
+    # Start CSF
+    systemctl enable csf
+    systemctl enable lfd
+    systemctl start csf
+    systemctl start lfd
     
     cd "$PANEL_DIR"
     ok "CSF/LFD firewall installed and configured"
@@ -1060,24 +774,24 @@ backend = %(sshd_backend)s
 
 [apache-auth]
 enabled = true
-port = 80,$HTTPS_PORT
+port = $HTTP_PORT,$HTTPS_PORT
 logpath = %(apache_error_log)s
 
 [apache-badbots]
 enabled = true
-port = 80,$HTTPS_PORT
+port = $HTTP_PORT,$HTTPS_PORT
 logpath = %(apache_access_log)s
 bantime = 86400
 maxretry = 1
 
 [apache-noscript]
 enabled = true
-port = 80,$HTTPS_PORT
+port = $HTTP_PORT,$HTTPS_PORT
 logpath = %(apache_access_log)s
 
 [apache-overflows]
 enabled = true
-port = 80,$HTTPS_PORT
+port = $HTTP_PORT,$HTTPS_PORT
 logpath = %(apache_error_log)s
 maxretry = 2
 EOF
@@ -1115,25 +829,15 @@ import_database_schema() {
     
     source /root/.phynx_credentials
     
-    # Set up MySQL authentication
-    local mysql_auth=""
-    if [ "$MYSQL_ROOT_PASSWORD" != "NOT_SET_USE_DEFAULT_AUTH" ]; then
-        mysql_auth="-p$MYSQL_ROOT_PASSWORD"
-        export MYSQL_PWD="$MYSQL_ROOT_PASSWORD"
-    fi
-    
     if [[ -f "database.sql" ]]; then
-        mysql -u root $mysql_auth "$DB_NAME" < database.sql
+        mysql -u root -p"$MYSQL_ROOT_PASSWORD" "$DB_NAME" < database.sql
         ok "Database schema imported from database.sql"
     elif [[ -f "$PANEL_DIR/database.sql" ]]; then
-        mysql -u root $mysql_auth "$DB_NAME" < "$PANEL_DIR/database.sql"
+        mysql -u root -p"$MYSQL_ROOT_PASSWORD" "$DB_NAME" < "$PANEL_DIR/database.sql"
         ok "Database schema imported from $PANEL_DIR/database.sql"
     else
         warn "No database.sql file found. You'll need to import the schema manually."
     fi
-    
-    # Clear password environment variable
-    unset MYSQL_PWD
 }
 
 # Final system optimization
@@ -1148,13 +852,10 @@ optimize_system() {
     apt-get autoclean
     
     # Set proper timezone
-    timedatectl set-timezone America/New_York 2>/dev/null || true
+    timedatectl set-timezone UTC 2>/dev/null || true
     
-    # Optimize MySQL for small servers (with error handling)
+    # Optimize MySQL for small servers
     if [[ ! -f /etc/mysql/mysql.conf.d/phynx-optimization.cnf ]]; then
-        log "Creating MySQL optimization configuration..."
-        
-        # Create optimization config
         cat > /etc/mysql/mysql.conf.d/phynx-optimization.cnf << EOF
 [mysqld]
 # Phynx Panel MySQL Optimization
@@ -1168,32 +869,7 @@ max_connections = 100
 thread_cache_size = 8
 table_open_cache = 1024
 EOF
-        
-        # Test MySQL restart with optimization config
-        log "Testing MySQL with optimization settings..."
-        if systemctl restart mysql 2>/dev/null; then
-            log "MySQL optimization applied successfully"
-        else
-            warn "MySQL failed to start with optimization config, reverting..."
-            
-            # Remove the problematic config file
-            rm -f /etc/mysql/mysql.conf.d/phynx-optimization.cnf
-            
-            # Restart MySQL without optimization
-            if systemctl restart mysql 2>/dev/null; then
-                warn "MySQL restarted without optimization config"
-            else
-                err "MySQL failed to restart even without optimization config"
-                # Try to start MySQL service anyway for the rest of the installation
-                systemctl start mysql 2>/dev/null || warn "Could not start MySQL service"
-            fi
-        fi
-    fi
-    
-    # Ensure MySQL is running before completing optimization
-    if ! systemctl is-active --quiet mysql; then
-        warn "MySQL is not running after optimization, attempting to start..."
-        systemctl start mysql 2>/dev/null || warn "Could not start MySQL - manual intervention may be required"
+        systemctl restart mysql
     fi
     
     ok "System optimization completed"
@@ -1224,18 +900,18 @@ display_installation_summary() {
     echo -e "MySQL Root Password: ${YELLOW}$MYSQL_ROOT_PASSWORD${NC}"
     echo -e "Panel Database: ${BLUE}$DB_NAME${NC}"
     echo -e "Panel DB User: ${BLUE}$DB_USER${NC}"
-    echo -e "Panel DB Password: ${YELLOW}$DB_PASSWORD${NC}"
+    echo -e "Panel DB Password: ${YELLOW}$DB_PASS${NC}"
     
     if [[ "$INSTALL_PMA" == "yes" ]]; then
-        echo -e "Phynx DB User: ${BLUE}$PMA_DB_USER${NC}"
-        echo -e "Phynx DB Password: ${YELLOW}$PMA_DB_PASSWORD${NC}"
+        echo -e "phpMyAdmin User: ${BLUE}$PMA_DB_USER${NC}"
+        echo -e "phpMyAdmin Password: ${YELLOW}$PMA_DB_PASS${NC}"
     fi
     
     echo -e "\n${CYAN}⚙️ System Information${NC}"
     echo "================================"
     echo -e "OS: ${GREEN}$(lsb_release -d | cut -f2)${NC}"
     echo -e "Web Server: ${GREEN}$WEB_SERVER${NC}"
-    echo -e "PHP Versions: ${GREEN}$(php8.4 -v | head -1 | cut -d' ' -f2), $(php8.2 -v | head -1 | cut -d' ' -f2)${NC}"
+    echo -e "PHP Versions: ${GREEN}$(php8.1 -v | head -1 | cut -d' ' -f2), $(php8.2 -v | head -1 | cut -d' ' -f2)${NC}"
     echo -e "MySQL Version: ${GREEN}$(mysql --version | cut -d' ' -f3 | cut -d',' -f1)${NC}"
     
     echo -e "\n${CYAN}🔒 Security Features${NC}"
@@ -1268,56 +944,26 @@ display_installation_summary() {
     echo "================================"
     
     # Check service status
-    services=("mysql" "$WEB_SERVER" "php8.4-fpm" "fail2ban")
+    services=("mysql" "$WEB_SERVER" "php8.1-fpm" "fail2ban")
     if [[ "$INSTALL_BIND" == "yes" ]]; then
-        # Check which BIND9 service name is active
-        if systemctl is-active --quiet named 2>/dev/null; then
-            services+=("named")
-        elif systemctl is-active --quiet bind9 2>/dev/null; then
-            services+=("bind9")
-        else
-            services+=("bind9")  # Default to bind9 for display
-        fi
+        services+=("bind9")
     fi
     if [[ "$INSTALL_CSF" == "yes" ]]; then
-        # Check CSF/LFD status (they might not be proper systemd services)
-        if systemctl is-active --quiet csf 2>/dev/null; then
-            services+=("csf")
-        elif /usr/sbin/csf -v >/dev/null 2>&1; then
-            services+=("csf-manual")  # CSF is working but not as systemd service
-        fi
-        
-        if systemctl is-active --quiet lfd 2>/dev/null; then
-            services+=("lfd")
-        elif pgrep lfd >/dev/null 2>&1; then
-            services+=("lfd-manual")  # LFD is running but not as systemd service
-        fi
+        services+=("csf" "lfd")
     fi
     
     for service in "${services[@]}"; do
-        case "$service" in
-            "csf-manual")
-                echo -e "csf: ${GREEN}✓ Running (manual)${NC}"
-                ;;
-            "lfd-manual")
-                echo -e "lfd: ${GREEN}✓ Running (manual)${NC}"
-                ;;
-            *)
-                if systemctl is-active --quiet "$service"; then
-                    echo -e "${service}: ${GREEN}✓ Running${NC}"
-                else
-                    echo -e "${service}: ${RED}✗ Not running${NC}"
-                fi
-                ;;
-        esac
+        if systemctl is-active --quiet "$service"; then
+            echo -e "${service}: ${GREEN}✓ Running${NC}"
+        else
+            echo -e "${service}: ${RED}✗ Not running${NC}"
+        fi
     done
     
     echo -e "\n${YELLOW}⚠️ Security Reminder${NC}"
     echo "================================"
-    echo -e "• ${GREEN}All MySQL passwords have been randomly generated${NC}"
     echo "• Credentials are saved in /root/.phynx_credentials"
-    echo "• Change default panel admin password after first login"
-    echo "• Keep MySQL root password secure"
+    echo "• Change all default passwords after first login"
     echo "• Review firewall rules for your specific needs"
     echo "• Set up regular backups"
     echo "• Monitor logs regularly"
@@ -1338,9 +984,9 @@ Database Credentials:
 - MySQL Root Password: $MYSQL_ROOT_PASSWORD
 - Panel Database: $DB_NAME
 - Panel DB User: $DB_USER
-- Panel DB Password: $DB_PASSWORD
-- Phynx DB User: $PMA_DB_USER
-- Phynx DB Password: $PMA_DB_PASSWORD
+- Panel DB Password: $DB_PASS
+- phpMyAdmin User: $PMA_DB_USER
+- phpMyAdmin Password: $PMA_DB_PASS
 
 Configuration Files:
 - Environment: $ENV_FILE
@@ -1410,222 +1056,15 @@ show_help() {
     echo "  --web-server=apache|nginx   Choose web server (default: apache)"
     echo "  --domain=example.com        Set panel domain name"
     echo "  --email=admin@example.com   Set admin email address"
-    echo "  --http-port=PORT            Set custom HTTP port (default: 80)"
-    echo "  --https-port=PORT           Set custom HTTPS port (default: 2083)"
     echo "  --no-pma                    Skip custom Phynx deployment"
     echo "  --no-bind                   Skip BIND9 DNS server installation"
     echo "  --csf                       Install CSF/LFD instead of UFW firewall"
-    echo "  --silent                    Skip interactive prompts (use defaults)"
     echo "  --help, -h                  Show this help message"
     echo ""
     echo "Examples:"
-    echo "  $0                                    # Interactive installation with prompts"
+    echo "  $0                                    # Basic installation with defaults"
     echo "  $0 --web-server=nginx --domain=panel.mydomain.com"
     echo "  $0 --no-pma --csf                   # Skip phpMyAdmin, use CSF firewall"
-    echo "  $0 --domain=panel.site.com --email=admin@site.com --https-port=8443"
-}
-
-# Parse command line arguments
-parse_arguments() {
-    while [[ $# -gt 0 ]]; do
-        case $1 in
-            --web-server=*)
-                WEB_SERVER="${1#*=}"
-                ;;
-            --domain=*)
-                PANEL_DOMAIN="${1#*=}"
-                ;;
-            --email=*)
-                ADMIN_EMAIL="${1#*=}"
-                ;;
-            --http-port=*)
-                HTTP_PORT="${1#*=}"
-                ;;
-            --https-port=*)
-                HTTPS_PORT="${1#*=}"
-                ;;
-            --no-pma)
-                INSTALL_PMA="no"
-                ;;
-            --no-bind)
-                INSTALL_BIND="no"
-                ;;
-            --csf)
-                INSTALL_CSF="yes"
-                ;;
-            --silent)
-                SILENT_MODE="yes"
-                ;;
-            --help|-h)
-                show_help
-                exit 0
-                ;;
-            *)
-                echo "Unknown option: $1"
-                show_help
-                exit 1
-                ;;
-        esac
-        shift
-    done
-}
-
-# Interactive prompts for missing configuration
-prompt_for_missing_config() {
-    echo -e "${CYAN}=== Interactive Configuration Setup ===${NC}"
-    echo ""
-    
-    # Prompt for domain if using default
-    local default_domain="panel.$(hostname -f 2>/dev/null || echo 'localhost')"
-    if [[ "$PANEL_DOMAIN" == "$default_domain" ]]; then
-        echo -e "${YELLOW}Domain Configuration:${NC}"
-        echo "Current domain: $PANEL_DOMAIN"
-        echo ""
-        read -p "Enter your custom domain (or press Enter to use default): " custom_domain
-        if [[ -n "$custom_domain" ]]; then
-            PANEL_DOMAIN="$custom_domain"
-            echo -e "${GREEN}✓${NC} Domain set to: $PANEL_DOMAIN"
-        else
-            echo -e "${YELLOW}!${NC} Using default domain: $PANEL_DOMAIN"
-        fi
-        echo ""
-    fi
-    
-    # Prompt for admin email if using default
-    local default_email="admin@$(hostname -d 2>/dev/null || echo 'localhost')"
-    if [[ "$ADMIN_EMAIL" == "$default_email" ]] || [[ "$ADMIN_EMAIL" == "admin@localhost" ]]; then
-        echo -e "${YELLOW}Admin Email Configuration:${NC}"
-        echo "Current email: $ADMIN_EMAIL"
-        echo ""
-        while true; do
-            read -p "Enter your admin email address: " admin_email
-            if [[ -n "$admin_email" ]]; then
-                # Basic email validation
-                if [[ "$admin_email" =~ ^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$ ]]; then
-                    ADMIN_EMAIL="$admin_email"
-                    echo -e "${GREEN}✓${NC} Admin email set to: $ADMIN_EMAIL"
-                    break
-                else
-                    echo -e "${RED}✗${NC} Invalid email format. Please try again."
-                fi
-            else
-                echo -e "${YELLOW}!${NC} Using default email: $ADMIN_EMAIL"
-                break
-            fi
-        done
-        echo ""
-    fi
-    
-    # Prompt for port customization
-    echo -e "${YELLOW}Port Configuration:${NC}"
-    echo "Current HTTP port: 80 (standard)"
-    echo "Current HTTPS port: $HTTPS_PORT"
-    echo ""
-    read -p "Do you want to use a different HTTPS port? [y/N]: " -n 1 -r change_ports
-    echo ""
-    if [[ $change_ports =~ ^[Yy]$ ]]; then
-        while true; do
-            read -p "Enter HTTPS port (current: $HTTPS_PORT): " new_https_port
-            if [[ -n "$new_https_port" ]]; then
-                if [[ "$new_https_port" =~ ^[0-9]+$ ]] && [ "$new_https_port" -ge 1024 ] && [ "$new_https_port" -le 65535 ]; then
-                    HTTPS_PORT="$new_https_port"
-                    echo -e "${GREEN}✓${NC} HTTPS port set to: $HTTPS_PORT"
-                    break
-                else
-                    echo -e "${RED}✗${NC} Invalid port. Please enter a number between 1024-65535."
-                fi
-            else
-                break
-            fi
-        done
-        
-        while true; do
-            read -p "Enter HTTPS port (current: $HTTPS_PORT): " new_https_port
-            if [[ -n "$new_https_port" ]]; then
-                if [[ "$new_https_port" =~ ^[0-9]+$ ]] && [ "$new_https_port" -ge 1024 ] && [ "$new_https_port" -le 65535 ]; then
-                    HTTPS_PORT="$new_https_port"
-                    echo -e "${GREEN}✓${NC} HTTPS port set to: $HTTPS_PORT"
-                    break
-                else
-                    echo -e "${RED}✗${NC} Invalid port. Please enter a number between 1024-65535."
-                fi
-            else
-                break
-            fi
-        done
-        echo ""
-    fi
-    
-    # Web server selection
-    echo -e "${YELLOW}Web Server Selection:${NC}"
-    echo "Current web server: $WEB_SERVER"
-    echo ""
-    read -p "Do you want to use Nginx instead of Apache? [y/N]: " -n 1 -r use_nginx
-    echo ""
-    if [[ $use_nginx =~ ^[Yy]$ ]]; then
-        WEB_SERVER="nginx"
-        echo -e "${GREEN}✓${NC} Web server set to: Nginx"
-    else
-        echo -e "${YELLOW}!${NC} Using: Apache (default)"
-    fi
-    echo ""
-    
-    # Additional options
-    echo -e "${YELLOW}Additional Options:${NC}"
-    read -p "Skip Phynx database manager installation? [y/N]: " -n 1 -r skip_pma
-    echo ""
-    if [[ $skip_pma =~ ^[Yy]$ ]]; then
-        INSTALL_PMA="no"
-        echo -e "${YELLOW}!${NC} Phynx database manager will be skipped"
-    fi
-    
-    read -p "Use CSF firewall instead of UFW? [y/N]: " -n 1 -r use_csf
-    echo ""
-    if [[ $use_csf =~ ^[Yy]$ ]]; then
-        INSTALL_CSF="yes"
-        echo -e "${GREEN}✓${NC} CSF firewall will be used"
-    fi
-    
-    echo -e "${CYAN}=== Configuration Complete ===${NC}"
-    echo ""
-}
-
-# Display installation summary with access URLs
-display_installation_summary() {
-    local SERVER_IP=$(hostname -I | awk '{print $1}')
-    
-    echo ""
-    echo -e "${GREEN}╔════════════════════════════════════════════════════╗${NC}"
-    echo -e "${GREEN}║              Installation Complete!                ║${NC}"
-    echo -e "${GREEN}╚════════════════════════════════════════════════════╝${NC}"
-    echo ""
-    echo -e "${CYAN}🎉 Phynx Hosting Panel has been successfully installed!${NC}"
-    echo ""
-    echo -e "${YELLOW}Access URLs:${NC}"
-    echo -e "• ${GREEN}HTTP${NC}:  http://$SERVER_IP"
-    echo -e "• ${GREEN}HTTPS${NC}: https://$SERVER_IP:$HTTPS_PORT (after SSL setup)"
-    echo ""
-    if [[ "$PANEL_DOMAIN" != "panel.$(hostname -f 2>/dev/null || echo 'localhost')" ]]; then
-        echo -e "• ${GREEN}Domain HTTP${NC}:  http://$PANEL_DOMAIN"
-        echo -e "• ${GREEN}Domain HTTPS${NC}: https://$PANEL_DOMAIN:$HTTPS_PORT (after SSL setup)"
-        echo ""
-    fi
-    echo -e "${YELLOW}Database Access:${NC}"
-    if [[ -d "$PMA_DIR" ]]; then
-        echo -e "• ${GREEN}Phynx DB Manager${NC}: http://$SERVER_IP/phynx"
-    fi
-    echo ""
-    echo -e "${YELLOW}Default Admin Credentials:${NC}"
-    echo -e "• ${GREEN}Username${NC}: admin"
-    echo -e "• ${GREEN}Password${NC}: admin123 (please change immediately)"
-    echo ""
-    echo -e "${YELLOW}Next Steps:${NC}"
-    echo -e "1. Change the default admin password"
-    echo -e "2. Configure SSL certificate with: certbot --apache -d $PANEL_DOMAIN --http-01-port 80 --https-port $HTTPS_PORT"
-    echo -e "3. Review firewall settings"
-    echo -e "4. Configure DNS settings if needed"
-    echo ""
-    echo -e "${CYAN}Log file: $LOG_FILE${NC}"
 }
 
 # ===============================
@@ -1643,11 +1082,6 @@ main() {
     # Parse command line arguments
     parse_arguments "$@"
     
-    # Interactive prompts for missing configuration (if not in silent mode)
-    if [[ "$SILENT_MODE" != "yes" ]]; then
-        prompt_for_missing_config
-    fi
-    
     # Pre-installation checks
     log "Starting Phynx Panel Enhanced Installation..."
     require_root
@@ -1658,7 +1092,7 @@ main() {
     echo "• Panel Domain: $PANEL_DOMAIN"
     echo "• Admin Email: $ADMIN_EMAIL"
     echo "• Web Server: $WEB_SERVER"
-    echo "• HTTP Port: 80"
+    echo "• HTTP Port: $HTTP_PORT"
     echo "• HTTPS Port: $HTTPS_PORT"
     echo "• Deploy custom Phynx: $INSTALL_PMA"
     echo "• Install BIND9: $INSTALL_BIND"
@@ -1678,7 +1112,6 @@ main() {
     # Core system setup
     update_system
     install_core_packages
-    install_mysql_server
     install_web_server
     
     # Database setup

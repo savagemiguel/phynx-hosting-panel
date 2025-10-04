@@ -38,8 +38,8 @@ PMA_DB_USER="phynx_user"
 APACHE_SITE="/etc/apache2/sites-available/$PANEL_NAME.conf"
 NGINX_SITE="/etc/nginx/sites-available/$PANEL_NAME"
 
-# Custom Port Configuration  
-HTTP_PORT="80"        # Standard HTTP port for hosting panel
+# Custom Port Configuration
+HTTP_PORT="2087"      # Custom HTTP port for hosting panel
 HTTPS_PORT="2083"     # Custom HTTPS port for hosting panel
 
 # DNS and SSL
@@ -255,7 +255,10 @@ install_apache() {
     # Enable required modules
     a2enmod rewrite ssl proxy proxy_fcgi setenvif headers
     
-    # Configure custom HTTPS port (port 80 is already default in Apache)
+    # Configure custom ports (check if not already configured)
+    if ! grep -q "Listen $HTTP_PORT" /etc/apache2/ports.conf; then
+        echo "Listen $HTTP_PORT" >> /etc/apache2/ports.conf
+    fi
     if ! grep -q "Listen $HTTPS_PORT ssl" /etc/apache2/ports.conf; then
         echo "Listen $HTTPS_PORT ssl" >> /etc/apache2/ports.conf
     fi
@@ -659,10 +662,10 @@ configure_web_server() {
 }
 
 configure_apache_vhost() {
-    log "Creating Apache virtual host configuration for ports 80 and $HTTPS_PORT..."
+    log "Creating Apache virtual host configuration for ports $HTTP_PORT and $HTTPS_PORT..."
     
     cat > "$APACHE_SITE" << EOF
-<VirtualHost *:80>
+<VirtualHost *:$HTTP_PORT>
     ServerName $PANEL_DOMAIN
     DocumentRoot $PANEL_DIR
     
@@ -781,11 +784,11 @@ EOF
 }
 
 configure_nginx_vhost() {
-    log "Creating Nginx server block configuration for ports 80 and $HTTPS_PORT..."
+    log "Creating Nginx server block configuration for ports $HTTP_PORT and $HTTPS_PORT..."
     
     cat > "$NGINX_SITE" << EOF
 server {
-    listen 80;
+    listen $HTTP_PORT;
     server_name $PANEL_DOMAIN;
     root $PANEL_DIR;
     index index.php index.html;
@@ -984,7 +987,7 @@ configure_ufw_firewall() {
     
     # Allow essential services
     ufw allow ssh
-    ufw allow 80/tcp
+    ufw allow $HTTP_PORT/tcp
     ufw allow $HTTPS_PORT/tcp
     
     # Allow DNS if BIND is installed
@@ -1010,8 +1013,8 @@ install_csf_firewall() {
     
     # Basic CSF configuration
     sed -i 's/TESTING = "1"/TESTING = "0"/' /etc/csf/csf.conf
-    sed -i "s/TCP_IN = .*/TCP_IN = \"22,53,80,$HTTPS_PORT,993,995\"/" /etc/csf/csf.conf
-    sed -i "s/TCP_OUT = .*/TCP_OUT = \"22,25,53,80,110,$HTTPS_PORT,587,993,995\"/" /etc/csf/csf.conf
+    sed -i "s/TCP_IN = .*/TCP_IN = \"22,53,$HTTP_PORT,$HTTPS_PORT,993,995\"/" /etc/csf/csf.conf
+    sed -i "s/TCP_OUT = .*/TCP_OUT = \"22,25,53,$HTTP_PORT,110,$HTTPS_PORT,587,993,995\"/" /etc/csf/csf.conf
     
     # Disable UFW if it's enabled
     ufw --force disable 2>/dev/null || true
@@ -1060,24 +1063,24 @@ backend = %(sshd_backend)s
 
 [apache-auth]
 enabled = true
-port = 80,$HTTPS_PORT
+port = $HTTP_PORT,$HTTPS_PORT
 logpath = %(apache_error_log)s
 
 [apache-badbots]
 enabled = true
-port = 80,$HTTPS_PORT
+port = $HTTP_PORT,$HTTPS_PORT
 logpath = %(apache_access_log)s
 bantime = 86400
 maxretry = 1
 
 [apache-noscript]
 enabled = true
-port = 80,$HTTPS_PORT
+port = $HTTP_PORT,$HTTPS_PORT
 logpath = %(apache_access_log)s
 
 [apache-overflows]
 enabled = true
-port = 80,$HTTPS_PORT
+port = $HTTP_PORT,$HTTPS_PORT
 logpath = %(apache_error_log)s
 maxretry = 2
 EOF
@@ -1410,7 +1413,7 @@ show_help() {
     echo "  --web-server=apache|nginx   Choose web server (default: apache)"
     echo "  --domain=example.com        Set panel domain name"
     echo "  --email=admin@example.com   Set admin email address"
-    echo "  --http-port=PORT            Set custom HTTP port (default: 80)"
+    echo "  --http-port=PORT            Set custom HTTP port (default: 2087)"
     echo "  --https-port=PORT           Set custom HTTPS port (default: 2083)"
     echo "  --no-pma                    Skip custom Phynx deployment"
     echo "  --no-bind                   Skip BIND9 DNS server installation"
@@ -1422,7 +1425,7 @@ show_help() {
     echo "  $0                                    # Interactive installation with prompts"
     echo "  $0 --web-server=nginx --domain=panel.mydomain.com"
     echo "  $0 --no-pma --csf                   # Skip phpMyAdmin, use CSF firewall"
-    echo "  $0 --domain=panel.site.com --email=admin@site.com --https-port=8443"
+    echo "  $0 --domain=panel.site.com --email=admin@site.com --http-port=8080"
 }
 
 # Parse command line arguments
@@ -1518,18 +1521,18 @@ prompt_for_missing_config() {
     
     # Prompt for port customization
     echo -e "${YELLOW}Port Configuration:${NC}"
-    echo "Current HTTP port: 80 (standard)"
+    echo "Current HTTP port: $HTTP_PORT"
     echo "Current HTTPS port: $HTTPS_PORT"
     echo ""
-    read -p "Do you want to use a different HTTPS port? [y/N]: " -n 1 -r change_ports
+    read -p "Do you want to use different ports? [y/N]: " -n 1 -r change_ports
     echo ""
     if [[ $change_ports =~ ^[Yy]$ ]]; then
         while true; do
-            read -p "Enter HTTPS port (current: $HTTPS_PORT): " new_https_port
-            if [[ -n "$new_https_port" ]]; then
-                if [[ "$new_https_port" =~ ^[0-9]+$ ]] && [ "$new_https_port" -ge 1024 ] && [ "$new_https_port" -le 65535 ]; then
-                    HTTPS_PORT="$new_https_port"
-                    echo -e "${GREEN}✓${NC} HTTPS port set to: $HTTPS_PORT"
+            read -p "Enter HTTP port (current: $HTTP_PORT): " new_http_port
+            if [[ -n "$new_http_port" ]]; then
+                if [[ "$new_http_port" =~ ^[0-9]+$ ]] && [ "$new_http_port" -ge 1024 ] && [ "$new_http_port" -le 65535 ]; then
+                    HTTP_PORT="$new_http_port"
+                    echo -e "${GREEN}✓${NC} HTTP port set to: $HTTP_PORT"
                     break
                 else
                     echo -e "${RED}✗${NC} Invalid port. Please enter a number between 1024-65535."
@@ -1602,17 +1605,17 @@ display_installation_summary() {
     echo -e "${CYAN}🎉 Phynx Hosting Panel has been successfully installed!${NC}"
     echo ""
     echo -e "${YELLOW}Access URLs:${NC}"
-    echo -e "• ${GREEN}HTTP${NC}:  http://$SERVER_IP"
+    echo -e "• ${GREEN}HTTP${NC}:  http://$SERVER_IP:$HTTP_PORT"
     echo -e "• ${GREEN}HTTPS${NC}: https://$SERVER_IP:$HTTPS_PORT (after SSL setup)"
     echo ""
     if [[ "$PANEL_DOMAIN" != "panel.$(hostname -f 2>/dev/null || echo 'localhost')" ]]; then
-        echo -e "• ${GREEN}Domain HTTP${NC}:  http://$PANEL_DOMAIN"
+        echo -e "• ${GREEN}Domain HTTP${NC}:  http://$PANEL_DOMAIN:$HTTP_PORT"
         echo -e "• ${GREEN}Domain HTTPS${NC}: https://$PANEL_DOMAIN:$HTTPS_PORT (after SSL setup)"
         echo ""
     fi
     echo -e "${YELLOW}Database Access:${NC}"
     if [[ -d "$PMA_DIR" ]]; then
-        echo -e "• ${GREEN}Phynx DB Manager${NC}: http://$SERVER_IP/phynx"
+        echo -e "• ${GREEN}Phynx DB Manager${NC}: http://$SERVER_IP:$HTTP_PORT/phynx"
     fi
     echo ""
     echo -e "${YELLOW}Default Admin Credentials:${NC}"
@@ -1621,7 +1624,7 @@ display_installation_summary() {
     echo ""
     echo -e "${YELLOW}Next Steps:${NC}"
     echo -e "1. Change the default admin password"
-    echo -e "2. Configure SSL certificate with: certbot --apache -d $PANEL_DOMAIN --http-01-port 80 --https-port $HTTPS_PORT"
+    echo -e "2. Configure SSL certificate with: certbot --apache -d $PANEL_DOMAIN --http-01-port $HTTP_PORT --https-port $HTTPS_PORT"
     echo -e "3. Review firewall settings"
     echo -e "4. Configure DNS settings if needed"
     echo ""
@@ -1658,7 +1661,7 @@ main() {
     echo "• Panel Domain: $PANEL_DOMAIN"
     echo "• Admin Email: $ADMIN_EMAIL"
     echo "• Web Server: $WEB_SERVER"
-    echo "• HTTP Port: 80"
+    echo "• HTTP Port: $HTTP_PORT"
     echo "• HTTPS Port: $HTTPS_PORT"
     echo "• Deploy custom Phynx: $INSTALL_PMA"
     echo "• Install BIND9: $INSTALL_BIND"
