@@ -338,6 +338,10 @@ configure_mysql_service() {
 secure_mysql_installation() {
     log "Securing MySQL installation..."
     
+    # Set non-interactive mode to prevent any prompts
+    export DEBIAN_FRONTEND=noninteractive
+    export MYSQL_PWD=""
+    
     # Ensure MySQL is running first
     configure_mysql_service
     
@@ -346,80 +350,119 @@ secure_mysql_installation() {
     DB_PASS=$(openssl rand -base64 24 | tr -d "=+/" | cut -c1-20)
     PMA_DB_PASS=$(openssl rand -base64 24 | tr -d "=+/" | cut -c1-20)
     
-    # Check if root password is already set
-    if mysql -u root -e "SELECT 1;" 2>/dev/null; then
-        log "MySQL root has no password, setting initial password..."
-        mysql -u root -e "ALTER USER 'root'@'localhost' IDENTIFIED WITH mysql_native_password BY '$MYSQL_ROOT_PASS';"
-    else
-        log "MySQL root password already set, attempting to update with common defaults..."
-        # Try with empty password first, then try common default passwords
-        if mysql -u root -p"" -e "ALTER USER 'root'@'localhost' IDENTIFIED WITH mysql_native_password BY '$MYSQL_ROOT_PASS';" 2>/dev/null; then
-            log "Updated root password successfully (was empty)"
-        elif mysql -u root -p"password" -e "ALTER USER 'root'@'localhost' IDENTIFIED WITH mysql_native_password BY '$MYSQL_ROOT_PASS';" 2>/dev/null; then
-            log "Updated root password successfully (was 'password')"
-        elif mysql -u root -p"root" -e "ALTER USER 'root'@'localhost' IDENTIFIED WITH mysql_native_password BY '$MYSQL_ROOT_PASS';" 2>/dev/null; then
-            log "Updated root password successfully (was 'root')"
-        elif mysql -u root -p"mysql" -e "ALTER USER 'root'@'localhost' IDENTIFIED WITH mysql_native_password BY '$MYSQL_ROOT_PASS';" 2>/dev/null; then
-            log "Updated root password successfully (was 'mysql')"
-        elif mysql -u root -p"admin" -e "ALTER USER 'root'@'localhost' IDENTIFIED WITH mysql_native_password BY '$MYSQL_ROOT_PASS';" 2>/dev/null; then
-            log "Updated root password successfully (was 'admin')"
-        else
-            warn "Could not determine existing MySQL root password automatically."
-            log "Attempting to reset MySQL root password using system methods..."
-            
-            # Stop MySQL service
-            systemctl stop mysql
-            
-            # Start MySQL in safe mode to reset password
-            log "Starting MySQL in safe mode to reset root password..."
-            mysqld_safe --skip-grant-tables --skip-networking &
-            MYSQL_PID=$!
-            sleep 5
-            
-            # Reset the password
-            if mysql -u root -e "USE mysql; UPDATE user SET authentication_string=PASSWORD('$MYSQL_ROOT_PASS') WHERE User='root'; UPDATE user SET plugin='mysql_native_password' WHERE User='root'; FLUSH PRIVILEGES;" 2>/dev/null; then
-                log "Root password reset successfully using safe mode"
-            else
-                # Try alternative method for newer MySQL versions
-                mysql -u root -e "USE mysql; ALTER USER 'root'@'localhost' IDENTIFIED WITH mysql_native_password BY '$MYSQL_ROOT_PASS'; FLUSH PRIVILEGES;" 2>/dev/null || true
-            fi
-            
-            # Kill safe mode MySQL and restart normally
-            kill $MYSQL_PID 2>/dev/null || true
-            sleep 3
-            systemctl start mysql
-            sleep 3
-            
-            # Verify the password change worked
-            if ! mysql -u root -p"$MYSQL_ROOT_PASS" -e "SELECT 1;" 2>/dev/null; then
-                die "Failed to set MySQL root password automatically. Manual intervention required."
-            fi
-            
-            log "MySQL root password set successfully using safe mode reset"
-        fi
+    # Force MySQL root password reset using safe mode (most reliable method)
+    log "Resetting MySQL root password using safe mode for security..."
+    
+    # Stop MySQL service completely
+    systemctl stop mysql 2>/dev/null || true
+    sleep 2
+    
+    # Kill any existing MySQL processes
+    pkill -f mysql 2>/dev/null || true
+    sleep 2
+    
+    # Start MySQL in safe mode without networking and grant tables
+    log "Starting MySQL in safe mode..."
+    mysqld_safe --skip-grant-tables --skip-networking --pid-file=/tmp/mysql_safe.pid &
+    MYSQL_SAFE_PID=$!
+    
+    # Wait for MySQL to start in safe mode
+    local safe_count=0
+    local max_safe_attempts=15
+    while ! mysqladmin ping --socket=/var/run/mysqld/mysqld.sock 2>/dev/null && [ $safe_count -lt $max_safe_attempts ]; do
+        sleep 2
+        ((safe_count++))
+        echo -n "."
+    done
+    echo ""
+    
+    if [ $safe_count -eq $max_safe_attempts ]; then
+        err "Failed to start MySQL in safe mode"
+        kill $MYSQL_SAFE_PID 2>/dev/null || true
+        systemctl start mysql
+        die "Could not reset MySQL root password"
     fi
+    
+    log "MySQL running in safe mode, resetting root password..."
+    
+    # Reset root password (try multiple methods for different MySQL versions)
+    if mysql --socket=/var/run/mysqld/mysqld.sock -u root -e "FLUSH PRIVILEGES;" 2>/dev/null; then
+        # Method 1: Modern MySQL (8.0+)
+        if mysql --socket=/var/run/mysqld/mysqld.sock -u root -e "ALTER USER 'root'@'localhost' IDENTIFIED WITH mysql_native_password BY '$MYSQL_ROOT_PASS';" 2>/dev/null; then
+            log "Root password set using ALTER USER method"
+        # Method 2: Older MySQL versions
+        elif mysql --socket=/var/run/mysqld/mysqld.sock -u root -e "UPDATE mysql.user SET authentication_string=PASSWORD('$MYSQL_ROOT_PASS'), plugin='mysql_native_password' WHERE User='root' AND Host='localhost';" 2>/dev/null; then
+            log "Root password set using UPDATE method"
+        # Method 3: Very old MySQL versions
+        elif mysql --socket=/var/run/mysqld/mysqld.sock -u root -e "SET PASSWORD FOR 'root'@'localhost' = PASSWORD('$MYSQL_ROOT_PASS');" 2>/dev/null; then
+            log "Root password set using SET PASSWORD method"
+        else
+            err "All password reset methods failed"
+        fi
+        
+        # Flush privileges to apply changes
+        mysql --socket=/var/run/mysqld/mysqld.sock -u root -e "FLUSH PRIVILEGES;" 2>/dev/null || true
+    fi
+    
+    # Stop safe mode MySQL
+    log "Stopping MySQL safe mode..."
+    kill $MYSQL_SAFE_PID 2>/dev/null || true
+    pkill -f "mysqld_safe" 2>/dev/null || true
+    pkill -f "mysqld.*skip-grant-tables" 2>/dev/null || true
+    sleep 3
+    
+    # Remove safe mode PID file
+    rm -f /tmp/mysql_safe.pid 2>/dev/null || true
+    
+    # Start MySQL normally
+    log "Starting MySQL in normal mode..."
+    systemctl start mysql
+    sleep 5
+    
+    # Verify the password change worked
+    local verify_count=0
+    local max_verify_attempts=10
+    while ! mysql -u root -p"$MYSQL_ROOT_PASS" -e "SELECT 1;" 2>/dev/null && [ $verify_count -lt $max_verify_attempts ]; do
+        sleep 2
+        ((verify_count++))
+        echo -n "."
+    done
+    echo ""
+    
+    if [ $verify_count -eq $max_verify_attempts ]; then
+        err "Password verification failed after reset"
+        die "Failed to set MySQL root password. Manual intervention required."
+    fi
+    
+    ok "MySQL root password set successfully"
+    # Set password environment variable for non-interactive MySQL operations
+    export MYSQL_PWD="$MYSQL_ROOT_PASS"
+    
     # Secure MySQL installation (remove anonymous users, test database, etc.)
     log "Applying MySQL security settings..."
-    mysql -u root -p"$MYSQL_ROOT_PASS" -e "DELETE FROM mysql.user WHERE User='';" 2>/dev/null || warn "Could not remove anonymous users"
-    mysql -u root -p"$MYSQL_ROOT_PASS" -e "DELETE FROM mysql.user WHERE User='root' AND Host NOT IN ('localhost', '127.0.0.1', '::1');" 2>/dev/null || warn "Could not remove remote root access"
-    mysql -u root -p"$MYSQL_ROOT_PASS" -e "DROP DATABASE IF EXISTS test;" 2>/dev/null || warn "Test database not found"
-    mysql -u root -p"$MYSQL_ROOT_PASS" -e "DELETE FROM mysql.db WHERE Db='test' OR Db='test\\_%';" 2>/dev/null || warn "Could not remove test database privileges"
-    mysql -u root -p"$MYSQL_ROOT_PASS" -e "FLUSH PRIVILEGES;" || die "Could not flush MySQL privileges"
+    mysql -u root -e "DELETE FROM mysql.user WHERE User='';" 2>/dev/null || warn "Could not remove anonymous users"
+    mysql -u root -e "DELETE FROM mysql.user WHERE User='root' AND Host NOT IN ('localhost', '127.0.0.1', '::1');" 2>/dev/null || warn "Could not remove remote root access"
+    mysql -u root -e "DROP DATABASE IF EXISTS test;" 2>/dev/null || warn "Test database not found"
+    mysql -u root -e "DELETE FROM mysql.db WHERE Db='test' OR Db='test\\_%';" 2>/dev/null || warn "Could not remove test database privileges"
+    mysql -u root -e "FLUSH PRIVILEGES;" || die "Could not flush MySQL privileges"
     
     # Create databases and users
     log "Creating panel database and users..."
-    mysql -u root -p"$MYSQL_ROOT_PASS" -e "CREATE DATABASE IF NOT EXISTS $DB_NAME CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;" || die "Could not create panel database"
-    mysql -u root -p"$MYSQL_ROOT_PASS" -e "CREATE USER IF NOT EXISTS '$DB_USER'@'localhost' IDENTIFIED BY '$DB_PASS';" || die "Could not create panel database user"
-    mysql -u root -p"$MYSQL_ROOT_PASS" -e "GRANT ALL PRIVILEGES ON $DB_NAME.* TO '$DB_USER'@'localhost';" || die "Could not grant privileges to panel user"
+    mysql -u root -e "CREATE DATABASE IF NOT EXISTS $DB_NAME CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;" || die "Could not create panel database"
+    mysql -u root -e "CREATE USER IF NOT EXISTS '$DB_USER'@'localhost' IDENTIFIED BY '$DB_PASS';" || die "Could not create panel database user"
+    mysql -u root -e "GRANT ALL PRIVILEGES ON $DB_NAME.* TO '$DB_USER'@'localhost';" || die "Could not grant privileges to panel user"
     
     # Create database user for custom Phynx if deploying it
     if [[ "$INSTALL_PMA" == "yes" ]]; then
         log "Creating Phynx database manager user..."
-        mysql -u root -p"$MYSQL_ROOT_PASS" -e "CREATE USER IF NOT EXISTS '$PMA_DB_USER'@'localhost' IDENTIFIED BY '$PMA_DB_PASS';" || die "Could not create Phynx database user"
-        mysql -u root -p"$MYSQL_ROOT_PASS" -e "GRANT ALL PRIVILEGES ON *.* TO '$PMA_DB_USER'@'localhost' WITH GRANT OPTION;" || die "Could not grant privileges to Phynx user"
+        mysql -u root -e "CREATE USER IF NOT EXISTS '$PMA_DB_USER'@'localhost' IDENTIFIED BY '$PMA_DB_PASS';" || die "Could not create Phynx database user"
+        mysql -u root -e "GRANT ALL PRIVILEGES ON *.* TO '$PMA_DB_USER'@'localhost' WITH GRANT OPTION;" || die "Could not grant privileges to Phynx user"
     fi
     
-    mysql -u root -p"$MYSQL_ROOT_PASS" -e "FLUSH PRIVILEGES;" || die "Could not flush final MySQL privileges"
+    mysql -u root -e "FLUSH PRIVILEGES;" || die "Could not flush final MySQL privileges"
+    
+    # Clear password environment variable for security
+    unset MYSQL_PWD
     
     # Save credentials securely
     cat > /root/.phynx_credentials << EOF
@@ -1025,15 +1068,21 @@ import_database_schema() {
     
     source /root/.phynx_credentials
     
+    # Set password environment variable for non-interactive operation
+    export MYSQL_PWD="$MYSQL_ROOT_PASSWORD"
+    
     if [[ -f "database.sql" ]]; then
-        mysql -u root -p"$MYSQL_ROOT_PASSWORD" "$DB_NAME" < database.sql
+        mysql -u root "$DB_NAME" < database.sql
         ok "Database schema imported from database.sql"
     elif [[ -f "$PANEL_DIR/database.sql" ]]; then
-        mysql -u root -p"$MYSQL_ROOT_PASSWORD" "$DB_NAME" < "$PANEL_DIR/database.sql"
+        mysql -u root "$DB_NAME" < "$PANEL_DIR/database.sql"
         ok "Database schema imported from $PANEL_DIR/database.sql"
     else
         warn "No database.sql file found. You'll need to import the schema manually."
     fi
+    
+    # Clear password environment variable
+    unset MYSQL_PWD
 }
 
 # Final system optimization
