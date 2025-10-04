@@ -722,8 +722,51 @@ configure_apache_vhost() {
     # SSLEngine on
     # Include /etc/letsencrypt/options-ssl-apache.conf
     
-    # Same configuration as port 80
-    Include /etc/apache2/sites-available/${PANEL_NAME}.conf
+    # Security headers
+    Header always set X-Frame-Options "SAMEORIGIN"
+    Header always set X-XSS-Protection "1; mode=block"
+    Header always set X-Content-Type-Options "nosniff"
+    Header always set Referrer-Policy "strict-origin-when-cross-origin"
+    Header always set Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'"
+    
+    # Main directory
+    <Directory $PANEL_DIR>
+        Options -Indexes +FollowSymLinks
+        AllowOverride All
+        Require all granted
+        
+        # PHP-FPM configuration
+        <FilesMatch \\.php\$>
+            SetHandler "proxy:unix:/run/php/php8.4-fpm.sock|fcgi://localhost/"
+        </FilesMatch>
+    </Directory>
+    
+    # Custom phpMyAdmin location
+    Alias /phynxadmin "$PMA_DIR"
+    <Directory "$PMA_DIR">
+        Options -Indexes +FollowSymLinks
+        AllowOverride All
+        Require all granted
+        
+        <FilesMatch \\.php\$>
+            SetHandler "proxy:unix:/run/php/php8.4-fpm.sock|fcgi://localhost/"
+        </FilesMatch>
+    </Directory>
+    
+    # Deny access to sensitive files
+    <Files "config.php">
+        Require all denied
+    </Files>
+    <Files ".env">
+        Require all denied
+    </Files>
+    <FilesMatch "^\.">
+        Require all denied
+    </FilesMatch>
+    
+    # Logging
+    ErrorLog \${APACHE_LOG_DIR}/${PANEL_NAME}_ssl_error.log
+    CustomLog \${APACHE_LOG_DIR}/${PANEL_NAME}_ssl_access.log combined
 </VirtualHost>
 </IfModule>
 EOF
