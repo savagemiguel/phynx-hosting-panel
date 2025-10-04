@@ -281,6 +281,11 @@ install_nginx() {
 configure_mysql_service() {
     log "Configuring MySQL service..."
     
+    # Ensure MySQL directories exist with proper permissions
+    mkdir -p /var/run/mysqld /var/lib/mysql /var/log/mysql
+    chown mysql:mysql /var/run/mysqld /var/lib/mysql /var/log/mysql
+    chmod 755 /var/run/mysqld
+    
     # Ensure MySQL service is installed and configured
     systemctl stop mysql 2>/dev/null || true
     
@@ -360,6 +365,16 @@ secure_mysql_installation() {
     # Kill any existing MySQL processes
     pkill -f mysql 2>/dev/null || true
     sleep 2
+    
+    # Ensure MySQL socket directory exists with proper permissions
+    log "Creating MySQL socket directory..."
+    mkdir -p /var/run/mysqld
+    chown mysql:mysql /var/run/mysqld
+    chmod 755 /var/run/mysqld
+    
+    # Ensure MySQL data directory permissions are correct
+    chown -R mysql:mysql /var/lib/mysql 2>/dev/null || true
+    chown -R mysql:mysql /var/log/mysql 2>/dev/null || true
     
     # Start MySQL in safe mode without networking and grant tables
     log "Starting MySQL in safe mode..."
