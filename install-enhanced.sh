@@ -586,7 +586,7 @@ deploy_custom_pma() {
             source /root/.phynx_credentials
             
             # Create PMA config from template with database credentials
-            sed "s/{{PMA_DB_USER}}/$PMA_DB_USER/g; s/{{PMA_DB_PASSWORD}}/$PMA_DB_PASS/g" \\
+            sed "s/{{PMA_DB_USER}}/$PMA_DB_USER/g; s/{{PMA_DB_PASSWORD}}/$PMA_DB_PASS/g" \
                 "$PMA_DIR/config.sample.php" > "$PMA_DIR/config.inc.php"
             
             chown www-data:www-data "$PMA_DIR/config.inc.php"
