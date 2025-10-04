@@ -351,23 +351,51 @@ secure_mysql_installation() {
         log "MySQL root has no password, setting initial password..."
         mysql -u root -e "ALTER USER 'root'@'localhost' IDENTIFIED WITH mysql_native_password BY '$MYSQL_ROOT_PASS';"
     else
-        log "MySQL root password already set, attempting to update..."
+        log "MySQL root password already set, attempting to update with common defaults..."
         # Try with empty password first, then try common default passwords
         if mysql -u root -p"" -e "ALTER USER 'root'@'localhost' IDENTIFIED WITH mysql_native_password BY '$MYSQL_ROOT_PASS';" 2>/dev/null; then
-            log "Updated root password successfully"
+            log "Updated root password successfully (was empty)"
         elif mysql -u root -p"password" -e "ALTER USER 'root'@'localhost' IDENTIFIED WITH mysql_native_password BY '$MYSQL_ROOT_PASS';" 2>/dev/null; then
-            log "Updated root password successfully"
+            log "Updated root password successfully (was 'password')"
         elif mysql -u root -p"root" -e "ALTER USER 'root'@'localhost' IDENTIFIED WITH mysql_native_password BY '$MYSQL_ROOT_PASS';" 2>/dev/null; then
-            log "Updated root password successfully"
+            log "Updated root password successfully (was 'root')"
+        elif mysql -u root -p"mysql" -e "ALTER USER 'root'@'localhost' IDENTIFIED WITH mysql_native_password BY '$MYSQL_ROOT_PASS';" 2>/dev/null; then
+            log "Updated root password successfully (was 'mysql')"
+        elif mysql -u root -p"admin" -e "ALTER USER 'root'@'localhost' IDENTIFIED WITH mysql_native_password BY '$MYSQL_ROOT_PASS';" 2>/dev/null; then
+            log "Updated root password successfully (was 'admin')"
         else
-            warn "Could not set MySQL root password automatically. Please set it manually."
-            read -p "Enter current MySQL root password (or press Enter if none): " -s current_pass
-            echo ""
-            if [[ -n "$current_pass" ]]; then
-                mysql -u root -p"$current_pass" -e "ALTER USER 'root'@'localhost' IDENTIFIED WITH mysql_native_password BY '$MYSQL_ROOT_PASS';" || die "Failed to set MySQL root password"
+            warn "Could not determine existing MySQL root password automatically."
+            log "Attempting to reset MySQL root password using system methods..."
+            
+            # Stop MySQL service
+            systemctl stop mysql
+            
+            # Start MySQL in safe mode to reset password
+            log "Starting MySQL in safe mode to reset root password..."
+            mysqld_safe --skip-grant-tables --skip-networking &
+            MYSQL_PID=$!
+            sleep 5
+            
+            # Reset the password
+            if mysql -u root -e "USE mysql; UPDATE user SET authentication_string=PASSWORD('$MYSQL_ROOT_PASS') WHERE User='root'; UPDATE user SET plugin='mysql_native_password' WHERE User='root'; FLUSH PRIVILEGES;" 2>/dev/null; then
+                log "Root password reset successfully using safe mode"
             else
-                mysql -u root -e "ALTER USER 'root'@'localhost' IDENTIFIED WITH mysql_native_password BY '$MYSQL_ROOT_PASS';" || die "Failed to set MySQL root password"
+                # Try alternative method for newer MySQL versions
+                mysql -u root -e "USE mysql; ALTER USER 'root'@'localhost' IDENTIFIED WITH mysql_native_password BY '$MYSQL_ROOT_PASS'; FLUSH PRIVILEGES;" 2>/dev/null || true
             fi
+            
+            # Kill safe mode MySQL and restart normally
+            kill $MYSQL_PID 2>/dev/null || true
+            sleep 3
+            systemctl start mysql
+            sleep 3
+            
+            # Verify the password change worked
+            if ! mysql -u root -p"$MYSQL_ROOT_PASS" -e "SELECT 1;" 2>/dev/null; then
+                die "Failed to set MySQL root password automatically. Manual intervention required."
+            fi
+            
+            log "MySQL root password set successfully using safe mode reset"
         fi
     fi
     # Secure MySQL installation (remove anonymous users, test database, etc.)
@@ -1068,11 +1096,11 @@ display_installation_summary() {
     echo -e "MySQL Root Password: ${YELLOW}$MYSQL_ROOT_PASSWORD${NC}"
     echo -e "Panel Database: ${BLUE}$DB_NAME${NC}"
     echo -e "Panel DB User: ${BLUE}$DB_USER${NC}"
-    echo -e "Panel DB Password: ${YELLOW}$DB_PASS${NC}"
+    echo -e "Panel DB Password: ${YELLOW}$DB_PASSWORD${NC}"
     
     if [[ "$INSTALL_PMA" == "yes" ]]; then
-        echo -e "phpMyAdmin User: ${BLUE}$PMA_DB_USER${NC}"
-        echo -e "phpMyAdmin Password: ${YELLOW}$PMA_DB_PASS${NC}"
+        echo -e "Phynx DB User: ${BLUE}$PMA_DB_USER${NC}"
+        echo -e "Phynx DB Password: ${YELLOW}$PMA_DB_PASSWORD${NC}"
     fi
     
     echo -e "\n${CYAN}⚙️ System Information${NC}"
@@ -1130,8 +1158,10 @@ display_installation_summary() {
     
     echo -e "\n${YELLOW}⚠️ Security Reminder${NC}"
     echo "================================"
+    echo -e "• ${GREEN}All MySQL passwords have been randomly generated${NC}"
     echo "• Credentials are saved in /root/.phynx_credentials"
-    echo "• Change all default passwords after first login"
+    echo "• Change default panel admin password after first login"
+    echo "• Keep MySQL root password secure"
     echo "• Review firewall rules for your specific needs"
     echo "• Set up regular backups"
     echo "• Monitor logs regularly"
@@ -1152,9 +1182,9 @@ Database Credentials:
 - MySQL Root Password: $MYSQL_ROOT_PASSWORD
 - Panel Database: $DB_NAME
 - Panel DB User: $DB_USER
-- Panel DB Password: $DB_PASS
-- phpMyAdmin User: $PMA_DB_USER
-- phpMyAdmin Password: $PMA_DB_PASS
+- Panel DB Password: $DB_PASSWORD
+- Phynx DB User: $PMA_DB_USER
+- Phynx DB Password: $PMA_DB_PASSWORD
 
 Configuration Files:
 - Environment: $ENV_FILE
