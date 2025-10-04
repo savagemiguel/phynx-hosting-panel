@@ -255,9 +255,13 @@ install_apache() {
     # Enable required modules
     a2enmod rewrite ssl proxy proxy_fcgi setenvif headers
     
-    # Configure custom ports
-    echo "Listen $HTTP_PORT" >> /etc/apache2/ports.conf
-    echo "Listen $HTTPS_PORT ssl" >> /etc/apache2/ports.conf
+    # Configure custom ports (check if not already configured)
+    if ! grep -q "Listen $HTTP_PORT" /etc/apache2/ports.conf; then
+        echo "Listen $HTTP_PORT" >> /etc/apache2/ports.conf
+    fi
+    if ! grep -q "Listen $HTTPS_PORT ssl" /etc/apache2/ports.conf; then
+        echo "Listen $HTTPS_PORT ssl" >> /etc/apache2/ports.conf
+    fi
     
     # Configure Apache for PHP-FPM
     systemctl enable apache2
