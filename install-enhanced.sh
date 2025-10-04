@@ -952,8 +952,16 @@ EOF
     touch "$DNS_ZONE_PATH/phynx-zones.conf"
     chown bind:bind "$DNS_ZONE_PATH/phynx-zones.conf"
     
-    systemctl enable bind9
-    systemctl start bind9
+    # Enable and start BIND9 service (try both service names for compatibility)
+    if systemctl enable named 2>/dev/null; then
+        systemctl start named
+        log "BIND9 service enabled as 'named'"
+    elif systemctl enable bind9 2>/dev/null; then
+        systemctl start bind9
+        log "BIND9 service enabled as 'bind9'"
+    else
+        warn "Could not enable BIND9 service automatically"
+    fi
     
     ok "BIND9 installed and configured"
 }
@@ -1221,7 +1229,14 @@ display_installation_summary() {
     # Check service status
     services=("mysql" "$WEB_SERVER" "php8.4-fpm" "fail2ban")
     if [[ "$INSTALL_BIND" == "yes" ]]; then
-        services+=("bind9")
+        # Check which BIND9 service name is active
+        if systemctl is-active --quiet named 2>/dev/null; then
+            services+=("named")
+        elif systemctl is-active --quiet bind9 2>/dev/null; then
+            services+=("bind9")
+        else
+            services+=("bind9")  # Default to bind9 for display
+        fi
     fi
     if [[ "$INSTALL_CSF" == "yes" ]]; then
         services+=("csf" "lfd")
