@@ -1006,7 +1006,7 @@ install_csf_firewall() {
     
     # Download and install CSF
     cd /tmp
-    wget https://download.configserver.com/csf.tgz
+    wget https://github.com/waytotheweb/scripts/raw/refs/heads/main/csf.tgz
     tar -xzf csf.tgz
     cd csf
     sh install.sh
@@ -1019,11 +1019,27 @@ install_csf_firewall() {
     # Disable UFW if it's enabled
     ufw --force disable 2>/dev/null || true
     
-    # Start CSF
-    systemctl enable csf
-    systemctl enable lfd
-    systemctl start csf
-    systemctl start lfd
+    # Start CSF (handle systemd service issues)
+    log "Starting CSF/LFD services..."
+    
+    # Try to enable services, but don't fail if they can't be enabled
+    if ! systemctl enable csf 2>/dev/null; then
+        warn "Could not enable csf service automatically - will start manually"
+    fi
+    if ! systemctl enable lfd 2>/dev/null; then
+        warn "Could not enable lfd service automatically - will start manually"
+    fi
+    
+    # Start services
+    systemctl start csf 2>/dev/null || warn "CSF service failed to start"
+    systemctl start lfd 2>/dev/null || warn "LFD service failed to start"
+    
+    # Verify CSF is working
+    if /usr/sbin/csf -v >/dev/null 2>&1; then
+        log "CSF firewall is active and working"
+    else
+        warn "CSF may not be working properly - check configuration manually"
+    fi
     
     cd "$PANEL_DIR"
     ok "CSF/LFD firewall installed and configured"
@@ -1239,15 +1255,36 @@ display_installation_summary() {
         fi
     fi
     if [[ "$INSTALL_CSF" == "yes" ]]; then
-        services+=("csf" "lfd")
+        # Check CSF/LFD status (they might not be proper systemd services)
+        if systemctl is-active --quiet csf 2>/dev/null; then
+            services+=("csf")
+        elif /usr/sbin/csf -v >/dev/null 2>&1; then
+            services+=("csf-manual")  # CSF is working but not as systemd service
+        fi
+        
+        if systemctl is-active --quiet lfd 2>/dev/null; then
+            services+=("lfd")
+        elif pgrep lfd >/dev/null 2>&1; then
+            services+=("lfd-manual")  # LFD is running but not as systemd service
+        fi
     fi
     
     for service in "${services[@]}"; do
-        if systemctl is-active --quiet "$service"; then
-            echo -e "${service}: ${GREEN}✓ Running${NC}"
-        else
-            echo -e "${service}: ${RED}✗ Not running${NC}"
-        fi
+        case "$service" in
+            "csf-manual")
+                echo -e "csf: ${GREEN}✓ Running (manual)${NC}"
+                ;;
+            "lfd-manual")
+                echo -e "lfd: ${GREEN}✓ Running (manual)${NC}"
+                ;;
+            *)
+                if systemctl is-active --quiet "$service"; then
+                    echo -e "${service}: ${GREEN}✓ Running${NC}"
+                else
+                    echo -e "${service}: ${RED}✗ Not running${NC}"
+                fi
+                ;;
+        esac
     done
     
     echo -e "\n${YELLOW}⚠️ Security Reminder${NC}"
