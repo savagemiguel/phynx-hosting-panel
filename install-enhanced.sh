@@ -164,6 +164,82 @@ show_progress() {
     echo -e "${CYAN}╚═══════════════════════════════════════════════════════════════════════╝${NC}"
 }
 
+# Live progress bar for operations
+live_progress() {
+    local operation_name="$1"
+    local duration="$2"
+    local steps="${3:-20}"
+    
+    echo -e "${CYAN}${operation_name}...${NC}"
+    
+    for ((i=0; i<=steps; i++)); do
+        local percent=$((i * 100 / steps))
+        local completed=$((i * 50 / steps))
+        local remaining=$((50 - completed))
+        
+        # Create progress bar
+        local bar=""
+        for ((j=0; j<completed; j++)); do
+            bar+="█"
+        done
+        for ((j=0; j<remaining; j++)); do
+            bar+="░"
+        done
+        
+        # Clear line and show progress
+        echo -ne "\r${CYAN}║${NC} [$bar] ${GREEN}${percent}%${NC}"
+        
+        # Sleep for the interval
+        sleep $(echo "scale=2; $duration / $steps" | bc -l 2>/dev/null || echo "0.1")
+    done
+    
+    echo -e " ${GREEN}✓ Complete${NC}"
+}
+
+# Background process with progress indicator
+run_with_progress() {
+    local command="$1"
+    local message="$2"
+    local max_time="${3:-60}"
+    
+    echo -e "${CYAN}${message}...${NC}"
+    
+    # Start the command in background
+    eval "$command" &
+    local pid=$!
+    
+    local elapsed=0
+    local spinner="⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
+    local spinner_len=${#spinner}
+    
+    while kill -0 $pid 2>/dev/null; do
+        local i=$((elapsed % spinner_len))
+        local char="${spinner:$i:1}"
+        echo -ne "\r${CYAN}║${NC} ${char} ${message}... ${BLUE}${elapsed}s${NC}"
+        
+        sleep 1
+        ((elapsed++))
+        
+        # Timeout protection
+        if [[ $elapsed -gt $max_time ]]; then
+            kill $pid 2>/dev/null
+            echo -e "\r${RED}✗ Timeout after ${elapsed}s${NC}"
+            return 1
+        fi
+    done
+    
+    wait $pid
+    local exit_code=$?
+    
+    if [[ $exit_code -eq 0 ]]; then
+        echo -e "\r${CYAN}║${NC} ${GREEN}✓${NC} ${message} ${GREEN}completed in ${elapsed}s${NC}"
+    else
+        echo -e "\r${CYAN}║${NC} ${RED}✗${NC} ${message} ${RED}failed after ${elapsed}s${NC}"
+    fi
+    
+    return $exit_code
+}
+
 # Step progress function
 start_step() {
     CURRENT_STEP=$((CURRENT_STEP + 1))
@@ -1273,7 +1349,7 @@ check_dns_propagation() {
 # Setup external DNS instructions
 show_external_dns_instructions() {
     echo -e "\n${PURPLE}╔════════════════════════════════════════════════════════════════════════════════╗${NC}"
-    echo -e "${PURPLE}║                           🌐 DNS Configuration Instructions                     ║${NC}"
+    echo -e "${PURPLE}║                           🌐 DNS Configuration Instructions                    ║${NC}"
     echo -e "${PURPLE}╚════════════════════════════════════════════════════════════════════════════════╝${NC}"
     echo ""
     echo -e "${CYAN}📋 Domain Registrar Configuration:${NC}"
@@ -1402,7 +1478,7 @@ EOF
 # Show DNS completion information
 show_dns_completion_info() {
     echo -e "\n${PURPLE}╔════════════════════════════════════════════════════════════════════════════════╗${NC}"
-    echo -e "${PURPLE}║                           🌐 DNS Configuration Complete                         ║${NC}"
+    echo -e "${PURPLE}║                           🌐 DNS Configuration Complete                        ║${NC}"
     echo -e "${PURPLE}╚════════════════════════════════════════════════════════════════════════════════╝${NC}"
     echo ""
     
@@ -1780,11 +1856,11 @@ update_system() {
     
     export DEBIAN_FRONTEND=noninteractive
     
-    # Update package lists
-    apt-get update -y || die "Failed to update package lists"
+    # Update package lists with live progress
+    run_with_progress "apt-get update -y -qq" "Updating package lists" 120 || die "Failed to update package lists"
     
-    # Upgrade existing packages
-    apt-get upgrade -y || warn "Some packages failed to upgrade"
+    # Upgrade existing packages with live progress
+    run_with_progress "apt-get upgrade -y -qq" "Upgrading system packages" 300 || warn "Some packages failed to upgrade"
     
     # Install essential tools if not present
     apt-get install -y software-properties-common apt-transport-https ca-certificates curl wget gnupg lsb-release bc
@@ -2304,6 +2380,62 @@ configure_php_ini() {
     sed -i 's/^allow_url_fopen = .*/allow_url_fopen = Off/' "$PHP_INI"
     sed -i 's/^;session.cookie_httponly.*/session.cookie_httponly = 1/' "$PHP_INI"
     sed -i 's/^;session.cookie_secure.*/session.cookie_secure = 1/' "$PHP_INI"
+}
+
+# Create SSL certificate for the domain
+create_ssl_certificate() {
+    echo -e "${CYAN}Creating SSL certificate for $DOMAIN...${NC}"
+    
+    # Install certbot if not already installed
+    if ! command -v certbot >/dev/null 2>&1; then
+        echo -e "${YELLOW}Installing Certbot...${NC}"
+        apt-get update -qq
+        apt-get install -y certbot python3-certbot-apache snapd
+        snap install core; snap refresh core
+        snap install --classic certbot
+        ln -sf /snap/bin/certbot /usr/bin/certbot
+    fi
+    
+    # Check if certificate already exists
+    if [[ -d "/etc/letsencrypt/live/$DOMAIN" ]]; then
+        echo -e "${GREEN}SSL certificate already exists for $DOMAIN${NC}"
+        return 0
+    fi
+    
+    # Try to get Let's Encrypt certificate
+    echo -e "${YELLOW}Obtaining Let's Encrypt SSL certificate...${NC}"
+    if certbot certonly --apache --non-interactive --agree-tos --email "$ADMIN_EMAIL" -d "$DOMAIN" -d "www.$DOMAIN" -d "$PANEL_SUBDOMAIN" -d "$PHYNXADMIN_SUBDOMAIN" 2>/dev/null; then
+        echo -e "${GREEN}✓ Successfully obtained Let's Encrypt certificate${NC}"
+        
+        # Set up auto-renewal
+        (crontab -l 2>/dev/null; echo "0 12 * * * /usr/bin/certbot renew --quiet") | crontab -
+        
+        return 0
+    else
+        echo -e "${YELLOW}Let's Encrypt failed, creating self-signed certificate...${NC}"
+        
+        # Create self-signed certificate as fallback
+        SSL_DIR="/etc/ssl/certs"
+        KEY_DIR="/etc/ssl/private"
+        
+        mkdir -p "$SSL_DIR" "$KEY_DIR"
+        
+        # Generate private key and certificate
+        openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
+            -keyout "$KEY_DIR/$DOMAIN.key" \
+            -out "$SSL_DIR/$DOMAIN.crt" \
+            -subj "/C=US/ST=State/L=City/O=Organization/OU=OrgUnit/CN=$DOMAIN/emailAddress=$ADMIN_EMAIL"
+        
+        # Set proper permissions
+        chmod 600 "$KEY_DIR/$DOMAIN.key"
+        chmod 644 "$SSL_DIR/$DOMAIN.crt"
+        
+        echo -e "${GREEN}✓ Created self-signed SSL certificate${NC}"
+        echo -e "${YELLOW}Note: Self-signed certificates will show security warnings in browsers${NC}"
+        echo -e "${YELLOW}Consider getting a proper SSL certificate later${NC}"
+        
+        return 0
+    fi
 }
 
 # Create web server configuration
@@ -3832,7 +3964,7 @@ install_phynx() {
     INSTALLATION_STATS[start_time]=$(date +%s)
     
     # Initialize progress tracking
-    show_progress 0 14 "Initializing installation" "Setting up installation environment..."
+    show_progress 1 14 "Initializing installation" "Setting up installation environment..."
     
     # System backup if enabled
     if [[ "$ENABLE_BACKUP" == "yes" ]]; then
@@ -3842,7 +3974,7 @@ install_phynx() {
     
     # System validation
     show_step_header 1 "System Validation"
-    show_progress 5 14 "Validating system requirements" "Running system compatibility checks..."
+    show_progress 2 14 "Validating system requirements" "Running system compatibility checks..."
     validate_system
     validate_dependencies
     
@@ -3851,19 +3983,19 @@ install_phynx() {
         show_installation_summary
     fi
     
-    show_progress 10 14 "Preparing installation environment" "Setting up directories and permissions..."
+    show_progress 3 14 "Preparing installation environment" "Setting up directories and permissions..."
     add_operation "installation_prep"
     
     # Core system setup
     show_step_header 2 "Core System Setup"
-    show_progress 15 14 "Updating system and installing core packages" "Installing dependencies and updates..."
+    show_progress 4 14 "Updating system and installing core packages" "Installing dependencies and updates..."
     update_system
     install_core_packages
     track_operation "core_setup"
     
     # Web server and database setup
     show_step_header 3 "Web Server and Database Setup"  
-    show_progress 25 14 "Installing web server and database" "Setting up Apache, MySQL, PHP and related services..."
+    show_progress 5 14 "Installing web server and database" "Setting up Apache, MySQL, PHP and related services..."
     install_mysql_server
     install_web_server
     secure_mysql_installation
@@ -3871,14 +4003,14 @@ install_phynx() {
     
     # SSL and web server configuration
     show_step_header 4 "SSL and Web Server Configuration"
-    show_progress 40 14 "Configuring SSL certificates and virtual hosts" "Setting up SSL and domain configurations..."
+    show_progress 6 14 "Configuring SSL certificates and virtual hosts" "Setting up SSL and domain configurations..."
     create_ssl_certificate
     configure_web_server
     track_operation "web_config"
     
     # Panel installation
     show_step_header 5 "Panel Installation"
-    show_progress 55 14 "Installing Phynx panel files and configuration" "Copying panel files and configuring database..."
+    show_progress 7 14 "Installing Phynx panel files and configuration" "Copying panel files and configuring database..."
     install_panel_files
     create_environment_config
     configure_php
@@ -3889,7 +4021,7 @@ install_phynx() {
     
     if [[ "$INSTALL_PMA" == "yes" ]]; then
         show_step_header 6 "Installing Database Manager"
-        show_progress $component_progress "Installing custom PhynxAdmin"
+        show_progress 7 14 "Installing custom PhynxAdmin" "Deploying database manager interface..."
         deploy_custom_pma
         track_operation "phynxadmin_install"
         ((component_progress += 5))
@@ -3897,7 +4029,7 @@ install_phynx() {
     
     if [[ "$INSTALL_BIND" == "yes" ]]; then
         show_step_header 7 "Installing DNS Server"
-        show_progress $component_progress "Installing BIND9 DNS server"
+        show_progress 7 14 "Installing BIND9 DNS server" "Setting up DNS service and configuration..."
         install_bind9
         track_operation "bind9_install"
         ((component_progress += 5))
@@ -3906,7 +4038,7 @@ install_phynx() {
     # DNS Zone Setup
     if [[ "$SETUP_DNS_ZONES" == "yes" ]]; then
         show_step_header 8 "DNS Zone Configuration"
-        show_progress 75 14 "Creating DNS zones and records" "Configuring BIND9 and creating zone files..."
+        show_progress 8 14 "Creating DNS zones and records" "Configuring BIND9 and creating zone files..."
         setup_dns_zones
         create_dns_management_tools
         track_operation "dns_setup"
@@ -3915,12 +4047,12 @@ install_phynx() {
     
     # Security setup
     show_step_header $(if [[ "$SETUP_DNS_ZONES" == "yes" ]]; then echo "9"; else echo "8"; fi) "Security Configuration"
-    show_progress 80 14 "Configuring firewall and security" "Setting up security configurations..."
+    show_progress 9 14 "Configuring firewall and security" "Setting up security configurations..."
     configure_firewall
     configure_fail2ban
     
     if [[ "$INSTALL_CSF" == "yes" ]]; then
-        show_progress 85 14 "Installing CSF firewall" "Configuring advanced firewall protection..."
+        show_progress 10 14 "Installing CSF firewall" "Configuring advanced firewall protection..."
         install_csf
         track_operation "csf_install"
     fi
@@ -3929,18 +4061,18 @@ install_phynx() {
     
     # Final configuration
     show_step_header $(if [[ "$SETUP_DNS_ZONES" == "yes" ]]; then echo "10"; else echo "9"; fi) "Final Configuration"
-    show_progress 90 14 "Setting up cron jobs and importing schema" "Configuring database schema and scheduled tasks..."
+    show_progress 11 14 "Setting up cron jobs and importing schema" "Configuring database schema and scheduled tasks..."
     setup_cron_jobs
     import_database_schema
     track_operation "final_config"
     
     # System optimization and health checks
     show_step_header $(if [[ "$SETUP_DNS_ZONES" == "yes" ]]; then echo "11"; else echo "10"; fi) "System Optimization"
-    show_progress 95 14 "Optimizing system and performing health checks" "Running final optimizations and validations..."
+    show_progress 12 14 "Optimizing system and performing health checks" "Running final optimizations and validations..."
     optimize_system
     perform_health_check
     
-    show_progress 100 14 "Installation completed successfully" "All components installed and configured!"
+    show_progress 13 14 "Installation completed successfully" "All components installed and configured!"
     
     # Calculate final statistics
     INSTALLATION_STATS[end_time]=$(date +%s)
