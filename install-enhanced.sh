@@ -189,8 +189,14 @@ live_progress() {
         # Clear line and show progress
         echo -ne "\r${CYAN}║${NC} [$bar] ${GREEN}${percent}%${NC}"
         
-        # Sleep for the interval
-        sleep $(echo "scale=2; $duration / $steps" | bc -l 2>/dev/null || echo "0.1")
+        # Sleep for the interval (fallback to 0.1 if bc is not available)
+        local sleep_time
+        if command -v bc >/dev/null 2>&1; then
+            sleep_time=$(echo "scale=2; $duration / $steps" | bc -l 2>/dev/null || echo "0.1")
+        else
+            sleep_time="0.1"
+        fi
+        sleep "$sleep_time"
     done
     
     echo -e " ${GREEN}✓ Complete${NC}"
@@ -2384,27 +2390,43 @@ configure_php_ini() {
 
 # Create SSL certificate for the domain
 create_ssl_certificate() {
-    echo -e "${CYAN}Creating SSL certificate for $DOMAIN...${NC}"
+    local domain="${1:-$MAIN_DOMAIN}"
+    echo -e "${CYAN}Creating SSL certificate for $domain...${NC}"
     
     # Install certbot if not already installed
     if ! command -v certbot >/dev/null 2>&1; then
         echo -e "${YELLOW}Installing Certbot...${NC}"
         apt-get update -qq
-        apt-get install -y certbot python3-certbot-apache snapd
-        snap install core; snap refresh core
-        snap install --classic certbot
-        ln -sf /snap/bin/certbot /usr/bin/certbot
+        
+        # Try snap installation first (preferred method)
+        if command -v snap >/dev/null 2>&1; then
+            apt-get install -y snapd
+            snap install core 2>/dev/null || true
+            snap refresh core 2>/dev/null || true
+            if snap install --classic certbot 2>/dev/null; then
+                ln -sf /snap/bin/certbot /usr/bin/certbot
+                echo -e "${GREEN}✓ Certbot installed via snap${NC}"
+            else
+                # Fallback to apt installation
+                apt-get install -y certbot python3-certbot-apache
+                echo -e "${GREEN}✓ Certbot installed via apt${NC}"
+            fi
+        else
+            # Direct apt installation if snap is not available
+            apt-get install -y certbot python3-certbot-apache
+            echo -e "${GREEN}✓ Certbot installed via apt${NC}"
+        fi
     fi
     
     # Check if certificate already exists
-    if [[ -d "/etc/letsencrypt/live/$DOMAIN" ]]; then
-        echo -e "${GREEN}SSL certificate already exists for $DOMAIN${NC}"
+    if [[ -d "/etc/letsencrypt/live/$domain" ]]; then
+        echo -e "${GREEN}SSL certificate already exists for $domain${NC}"
         return 0
     fi
     
     # Try to get Let's Encrypt certificate
     echo -e "${YELLOW}Obtaining Let's Encrypt SSL certificate...${NC}"
-    if certbot certonly --apache --non-interactive --agree-tos --email "$ADMIN_EMAIL" -d "$DOMAIN" -d "www.$DOMAIN" -d "$PANEL_SUBDOMAIN" -d "$PHYNXADMIN_SUBDOMAIN" 2>/dev/null; then
+    if certbot certonly --apache --non-interactive --agree-tos --email "$ADMIN_EMAIL" -d "$domain" -d "www.$domain" -d "$PANEL_SUBDOMAIN" -d "$PHYNXADMIN_SUBDOMAIN" 2>/dev/null; then
         echo -e "${GREEN}✓ Successfully obtained Let's Encrypt certificate${NC}"
         
         # Set up auto-renewal
@@ -2422,13 +2444,13 @@ create_ssl_certificate() {
         
         # Generate private key and certificate
         openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
-            -keyout "$KEY_DIR/$DOMAIN.key" \
-            -out "$SSL_DIR/$DOMAIN.crt" \
-            -subj "/C=US/ST=State/L=City/O=Organization/OU=OrgUnit/CN=$DOMAIN/emailAddress=$ADMIN_EMAIL"
+            -keyout "$KEY_DIR/$domain.key" \
+            -out "$SSL_DIR/$domain.crt" \
+            -subj "/C=US/ST=State/L=City/O=Phynx Hosting Panel/OU=SSL Certificate/CN=$domain/emailAddress=$ADMIN_EMAIL"
         
         # Set proper permissions
-        chmod 600 "$KEY_DIR/$DOMAIN.key"
-        chmod 644 "$SSL_DIR/$DOMAIN.crt"
+        chmod 600 "$KEY_DIR/$domain.key"
+        chmod 644 "$SSL_DIR/$domain.crt"
         
         echo -e "${GREEN}✓ Created self-signed SSL certificate${NC}"
         echo -e "${YELLOW}Note: Self-signed certificates will show security warnings in browsers${NC}"
@@ -4004,7 +4026,7 @@ install_phynx() {
     # SSL and web server configuration
     show_step_header 4 "SSL and Web Server Configuration"
     show_progress 6 14 "Configuring SSL certificates and virtual hosts" "Setting up SSL and domain configurations..."
-    create_ssl_certificate
+    create_ssl_certificate "$MAIN_DOMAIN"
     configure_web_server
     track_operation "web_config"
     
