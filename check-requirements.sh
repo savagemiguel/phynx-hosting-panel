@@ -37,12 +37,13 @@ print_header() {
 
 print_banner() {
     echo -e "${BLUE}"
-    echo "╔════════════════════════════════════════════════════╗"
-    echo "║         Phynx Panel Pre-Installation Check        ║"
-    echo "║                                                    ║"
-    echo "║   This script validates system requirements        ║"
-    echo "║   before running the main installation             ║"
-    echo "╚════════════════════════════════════════════════════╝"
+    echo "╔══════════════════════════════════════════════════════════════════╗"
+    echo "║              Phynx Panel Advanced Pre-Installation Check        ║"
+    echo "║                                                                  ║"
+    echo "║   🌐 Validates system requirements for advanced features         ║"
+    echo "║   🔍 Checks DNS/BIND9, monitoring, and performance capabilities  ║"
+    echo "║   📊 Verifies resources for progress bars and error handling     ║"
+    echo "╚══════════════════════════════════════════════════════════════════╝"
     echo -e "${NC}\n"
 }
 
@@ -84,7 +85,7 @@ else
 fi
 
 print_header "Required Commands"
-REQUIRED_COMMANDS=("apt-get" "systemctl" "mysql" "openssl" "wget" "curl" "git" "unzip")
+REQUIRED_COMMANDS=("apt-get" "systemctl" "mysql" "openssl" "wget" "curl" "git" "unzip" "dig" "named-checkconf")
 for cmd in "${REQUIRED_COMMANDS[@]}"; do
     if command -v "$cmd" &> /dev/null; then
         check_pass "$cmd command available"
@@ -92,6 +93,80 @@ for cmd in "${REQUIRED_COMMANDS[@]}"; do
         check_warn "$cmd command not found (will be installed)"
     fi
 done
+
+print_header "DNS and Network Requirements"
+
+# Check if domain is provided as argument
+if [[ -n "$1" ]]; then
+    DOMAIN="$1"
+    echo "Testing domain: $DOMAIN"
+    
+    # Test DNS resolution
+    if dig +short "$DOMAIN" A &> /dev/null; then
+        check_pass "Domain $DOMAIN is resolvable"
+    else
+        check_warn "Domain $DOMAIN not currently resolvable (normal for new domains)"
+    fi
+    
+    # Check if domain points to this server
+    CURRENT_IP=$(curl -s http://ipecho.net/plain || curl -s http://icanhazip.com)
+    DOMAIN_IP=$(dig +short "$DOMAIN" A | head -1)
+    
+    if [[ "$DOMAIN_IP" == "$CURRENT_IP" ]]; then
+        check_pass "Domain $DOMAIN points to this server ($CURRENT_IP)"
+    else
+        check_warn "Domain $DOMAIN points to $DOMAIN_IP, server is $CURRENT_IP"
+        echo "         This is normal if you haven't configured DNS yet"
+    fi
+else
+    check_warn "No domain specified - run with './check-requirements.sh yourdomain.com' to test domain"
+fi
+
+# Check for reserved/blocked ports
+REQUIRED_PORTS=(80 443 2083 53)
+print_header "Port Availability"
+
+for port in "${REQUIRED_PORTS[@]}"; do
+    if netstat -tulpn 2>/dev/null | grep ":$port " &> /dev/null; then
+        if [[ "$port" == "53" ]]; then
+            check_warn "Port $port in use (DNS) - will be reconfigured if needed"
+        else
+            check_warn "Port $port in use - may need reconfiguration"
+        fi
+    else
+        check_pass "Port $port available"
+    fi
+done
+
+print_header "Enhanced System Requirements"
+
+# Memory check for advanced features
+TOTAL_MEM=$(grep MemTotal /proc/meminfo | awk '{print int($2/1024)}')
+if [[ $TOTAL_MEM -ge 2048 ]]; then
+    check_pass "RAM: ${TOTAL_MEM}MB (excellent for all features)"
+elif [[ $TOTAL_MEM -ge 1024 ]]; then
+    check_pass "RAM: ${TOTAL_MEM}MB (good for standard installation)"
+else
+    check_warn "RAM: ${TOTAL_MEM}MB (minimum - some advanced features may be limited)"
+fi
+
+# CPU cores check
+CPU_CORES=$(nproc)
+if [[ $CPU_CORES -ge 2 ]]; then
+    check_pass "CPU Cores: $CPU_CORES (good for parallel processing)"
+else
+    check_warn "CPU Cores: $CPU_CORES (may impact installation speed)"
+fi
+
+# Disk space check
+AVAILABLE_SPACE=$(df / | tail -1 | awk '{print int($4/1024/1024)}')
+if [[ $AVAILABLE_SPACE -ge 5 ]]; then
+    check_pass "Disk Space: ${AVAILABLE_SPACE}GB available (excellent)"
+elif [[ $AVAILABLE_SPACE -ge 2 ]]; then
+    check_pass "Disk Space: ${AVAILABLE_SPACE}GB available (sufficient)"
+else
+    check_fail "Disk Space: ${AVAILABLE_SPACE}GB available (insufficient - need 2GB+)"
+fi
 
 print_header "PHP Requirements"
 # Check if PHP is installed and version
@@ -226,35 +301,99 @@ else
     check_pass "MySQL not installed (will be installed)"
 fi
 
+# Advanced features assessment
+print_header "Advanced Features Assessment"
+ADVANCED_READY=true
+
+echo -e "${CYAN}🚀 Advanced Installation Features:${NC}"
+if [[ $TOTAL_MEM -ge 2048 ]]; then
+    echo -e "  ${GREEN}✓ RAM (${TOTAL_MEM}MB)${NC} - Excellent for all advanced features"
+elif [[ $TOTAL_MEM -ge 1024 ]]; then
+    echo -e "  ${GREEN}✓ RAM (${TOTAL_MEM}MB)${NC} - Good for standard + DNS features"
+else
+    echo -e "  ${YELLOW}⚠ RAM (${TOTAL_MEM}MB)${NC} - Limited advanced feature performance"
+    ADVANCED_READY=false
+fi
+
+if [[ $CPU_CORES -ge 2 ]]; then
+    echo -e "  ${GREEN}✓ CPU Cores ($CPU_CORES)${NC} - Parallel processing optimizations available"
+else
+    echo -e "  ${YELLOW}⚠ CPU Cores ($CPU_CORES)${NC} - Sequential processing (slower installation)"
+fi
+
+if [[ $AVAILABLE_SPACE -ge 5 ]]; then
+    echo -e "  ${GREEN}✓ Disk Space (${AVAILABLE_SPACE}GB)${NC} - Plenty for logs, backups, reports"
+elif [[ $AVAILABLE_SPACE -ge 2 ]]; then
+    echo -e "  ${GREEN}✓ Disk Space (${AVAILABLE_SPACE}GB)${NC} - Sufficient for installation"
+else
+    echo -e "  ${RED}✗ Disk Space (${AVAILABLE_SPACE}GB)${NC} - Need 2GB+ minimum"
+    ADVANCED_READY=false
+fi
+
 # Summary
 echo ""
-print_header "Pre-Installation Check Summary"
+print_header "Pre-Installation Check Summary" 
 echo -e "Passed: ${GREEN}$PASS_COUNT${NC}"
 echo -e "Warnings: ${YELLOW}$WARN_COUNT${NC}"
 echo -e "Failed: ${RED}$FAIL_COUNT${NC}"
 
 echo ""
 if [[ $FAIL_COUNT -eq 0 ]]; then
-    echo -e "${GREEN}✓ System ready for installation!${NC}"
+    echo -e "${GREEN}✅ System ready for Phynx Panel installation with Advanced Features!${NC}"
     echo ""
-    echo "To proceed with installation, run:"
-    echo "  sudo ./install-enhanced.sh"
+    
+    if [[ "$ADVANCED_READY" == true ]]; then
+        echo -e "${BLUE}🎯 Recommended: Full Advanced Installation${NC}"
+        echo "  sudo ./install-enhanced.sh --domain=yourdomain.com --setup-dns"
+    else
+        echo -e "${YELLOW}⚡ Recommended: Standard Installation${NC}"
+        echo "  sudo ./install-enhanced.sh --domain=yourdomain.com --no-dns"
+    fi
+    
     echo ""
-    echo "Available installation options:"
-    echo "  --web-server=nginx          # Use Nginx instead of Apache"
-    echo "  --web-server=apache         # Use Apache (default)"
-    echo "  --domain=panel.example.com  # Set custom domain for SSL"
-    echo "  --no-pma                    # Skip Phynx database manager"
+    echo -e "${CYAN}📋 Available Advanced Options:${NC}"
+    echo "  --web-server=nginx|apache   # Web server choice (default: apache)"
+    echo "  --domain=yourdomain.com     # Main domain for multi-domain setup"
+    echo "  --email=admin@yourdomain.com # Admin email address"
+    echo "  --setup-dns                 # Create DNS zones automatically (default)"
+    echo "  --no-dns                    # Skip DNS zone creation"
     echo "  --csf                       # Use CSF firewall instead of UFW"
-    echo "  --no-docker                 # Skip Docker installation"
-    echo "  --php-version=8.4           # Specify PHP version (8.1, 8.2, 8.3, or 8.4)"
+    echo "  --no-pma                    # Skip Phynx Manager installation"
+    echo "  --no-bind                   # Skip BIND9 DNS server"
+    echo "  --silent                    # Skip interactive prompts"
     echo ""
-    echo "Example:"
-    echo "  sudo ./install-enhanced.sh --web-server=nginx --domain=panel.mysite.com"
+    echo -e "${GREEN}🌟 New Advanced Features:${NC}"
+    echo "  • 🌐 Automatic DNS zone creation with nameservers"
+    echo "  • 📊 Real-time progress bars with ETA calculations"
+    echo "  • 🛡️ Comprehensive error handling and automatic rollback"
+    echo "  • 🎛️ Interactive configuration menus and wizards"
+    echo "  • 📋 HTML installation reports and analytics"
+    echo "  • 🔍 DNS propagation monitoring across global servers"
+    echo "  • ⚡ Performance monitoring and system optimization"
+    echo ""
+    echo -e "${BLUE}Example Commands:${NC}"
+    echo "  # Full installation with DNS:"
+    echo "  sudo ./install-enhanced.sh --domain=mysite.com --email=admin@mysite.com"
+    echo ""
+    echo "  # High-security installation:"
+    echo "  sudo ./install-enhanced.sh --csf --setup-dns --domain=secure.mysite.com"
+    echo ""
+    echo "  # Minimal installation:"
+    echo "  sudo ./install-enhanced.sh --no-dns --no-pma --silent"
+    echo ""
+    
     exit 0
 else
-    echo -e "${RED}✗ System not ready for installation${NC}"
+    echo -e "${RED}❌ System not ready for installation${NC}"
     echo ""
-    echo "Please resolve the failed checks before proceeding."
+    echo -e "${YELLOW}Please resolve the failed checks above before proceeding.${NC}"
+    echo ""
+    echo -e "${BLUE}Common Solutions:${NC}"
+    echo "  • Run as root: sudo ./check-requirements.sh yourdomain.com"
+    echo "  • Update packages: sudo apt update && sudo apt upgrade -y"
+    echo "  • Free up disk space if needed"
+    echo "  • Check internet connectivity"
+    echo "  • Resolve any port conflicts"
+    echo ""
     exit 1
 fi

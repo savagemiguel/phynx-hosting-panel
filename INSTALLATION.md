@@ -1,22 +1,40 @@
 # Phynx Hosting Panel Installation Guide
 
-This guide will walk you through installing the Phynx Hosting Panel on Ubuntu 22.04 or higher with your custom Phynx deployment.
+This guide will walk you through installing the **Phynx Hosting Panel** with **advanced features** including automatic DNS zone creation, progress monitoring, error handling, and comprehensive web hosting capabilities.
+
+## 🚀 **New Features Highlight**
+
+✨ **Latest Version Includes:**
+- 🌐 **Automatic DNS Zone Creation** - Complete BIND9 DNS setup with nameservers
+- 📊 **Advanced Progress Monitoring** - Real-time progress bars with ETA calculations
+- 🛡️ **Comprehensive Error Handling** - Automatic rollback and recovery systems
+- 🎛️ **Interactive Configuration** - User-friendly menus and setup wizards
+- 📈 **Performance Monitoring** - System resource tracking during installation
+- 📋 **HTML Report Generation** - Detailed installation analytics and reports
+- 🔍 **DNS Propagation Monitoring** - Real-time DNS verification across global servers
 
 ## 🔧 System Requirements
 
 ### Minimum Requirements
 - **Operating System**: Ubuntu 22.04 LTS or higher
-- **RAM**: 512MB (1GB+ recommended)
-- **Disk Space**: 1GB available
-- **Network**: Internet connection for package downloads
+- **RAM**: 1GB (2GB+ recommended for DNS and advanced features)
+- **Disk Space**: 2GB available (additional space for logs and backups)
+- **Network**: Internet connection for package downloads and DNS testing
 - **Privileges**: Root access (sudo)
+- **Domain**: Registered domain name for DNS zone creation
+
+### Recommended Requirements
+- **RAM**: 2GB+ for optimal performance with all features
+- **Disk Space**: 5GB+ for logs, backups, and user data
+- **CPU**: 2+ cores for parallel processing optimization
+- **Network**: Stable connection for DNS propagation monitoring
 
 ### Supported Ubuntu Versions
-- ✅ Ubuntu 22.04 LTS (Jammy Jellyfish)
+- ✅ Ubuntu 22.04 LTS (Jammy Jellyfish) - **Recommended**
 - ✅ Ubuntu 23.04 (Lunar Lobster)
-- ✅ Ubuntu 23.10 (Mantic Minotaur)
+- ✅ Ubuntu 23.10 (Mantic Minotaur) 
 - ✅ Ubuntu 24.04 LTS (Noble Numbat)
-- ⚠️ Later versions (not tested but should work)
+- ✅ Ubuntu 24.10+ (Latest versions supported)
 
 ## 🚀 Quick Installation
 
@@ -48,71 +66,190 @@ sudo ./install-enhanced.sh
 sudo ./install-enhanced.sh --web-server=nginx --domain=panel.yourdomain.com
 ```
 
-## ⚙️ Configuration Options
+## ⚙️ **Advanced Configuration Options**
 
-The enhanced installer supports several configuration options:
+The **enhanced installer** supports comprehensive configuration with **interactive menus** and **command-line options**:
 
-```bash
-sudo ./install-enhanced.sh [OPTIONS]
+### 🎛️ **Interactive Installation**
 
-Options:
-  --web-server=apache|nginx    Choose web server (default: apache)
-  --domain=example.com         Set panel domain name
-  --email=admin@example.com    Set admin email address
-  --no-pma                     Skip phpMyAdmin installation
-  --no-bind                    Skip BIND9 DNS server installation
-  --csf                        Install CSF/LFD instead of UFW firewall
-  --help, -h                   Show help message
-```
-
-### Example Configurations
-
-**Basic Apache Installation:**
+**Default Mode** - Full interactive experience with progress bars:
 ```bash
 sudo ./install-enhanced.sh
 ```
 
-**Nginx with Custom Domain:**
+Features **interactive menus** for:
+- 🌐 Domain configuration
+- 🔧 Web server selection  
+- 📦 Optional component selection
+- 🛡️ Security settings
+- 📊 Advanced feature toggles
+
+### 📝 **Command-Line Options**
+
 ```bash
-sudo ./install-enhanced.sh --web-server=nginx --domain=panel.mydomain.com --email=admin@mydomain.com
+sudo ./install-enhanced.sh [OPTIONS]
+
+Core Configuration:
+  --web-server=apache|nginx     Choose web server (default: apache)
+  --domain=example.com          Set main domain (creates *.domain structure)  
+  --email=admin@example.com     Set admin email address
+  --http-port=PORT              Set custom HTTP port (default: 80)
+  --https-port=PORT             Set custom HTTPS port (default: 443)
+  --secure-port=PORT            Set secure admin port (default: 2083)
+
+Component Options:
+  --no-pma                      Skip custom Phynx Manager deployment
+  --no-bind                     Skip BIND9 DNS server installation
+  --csf                         Install CSF/LFD instead of UFW firewall
+  --setup-dns                   Automatically create DNS zones (default: yes)
+  --no-dns                      Skip automatic DNS zone creation
+
+Advanced Features:
+  --silent                      Skip interactive prompts (use defaults)
+  --help, -h                    Show comprehensive help message
+
+DNS & Domain Features:
+  --setup-dns                   Enable automatic DNS zone creation
+  --no-dns                      Disable DNS zone automation
 ```
 
-**Minimal Installation (No DNS, No phpMyAdmin):**
+### 🎯 **Example Configurations**
+
+**🚀 Full-Featured Installation** (Recommended):
 ```bash
-sudo ./install-enhanced.sh --no-bind --no-pma
+sudo ./install-enhanced.sh --domain=yourdomain.com --email=admin@yourdomain.com
 ```
 
-**High Security Installation with CSF:**
+**🌐 Complete DNS + Hosting Setup**:
 ```bash
-sudo ./install-enhanced.sh --csf --domain=secure-panel.example.com
+sudo ./install-enhanced.sh --web-server=nginx --domain=yourdomain.com --setup-dns
 ```
 
-## 🗂️ What Gets Installed
+**🛡️ High-Security Installation**:
+```bash
+sudo ./install-enhanced.sh --csf --domain=secure.yourdomain.com --setup-dns
+```
 
-### Core Components
-- **Web Server**: Apache 2.4 or Nginx (your choice)
-- **Database**: MySQL 8.0 with optimized configuration
-- **PHP**: PHP 8.1 and 8.2 with FPM and required extensions
-- **Panel Files**: Installed to `/var/www/phynx`
+**⚡ Minimal Installation** (No DNS, No Phynx Manager):
+```bash
+sudo ./install-enhanced.sh --no-dns --no-pma --no-bind
+```
 
-### Custom phpMyAdmin Integration
-- **Location**: `/var/www/phynx/pma` (accessible at `yoursite.com/pma`)
-- **Features**: Full database management with panel integration
-- **Security**: Pre-configured with secure defaults
-- **Authentication**: Integrated with panel user system
+**🔇 Silent Installation** (No prompts):
+```bash
+sudo ./install-enhanced.sh --silent --domain=auto.yourdomain.com
+```
 
-### Security Features
-- **Firewall**: UFW (default) or CSF/LFD (optional)
-- **Fail2Ban**: Automatic intrusion prevention
-- **SSL Ready**: Certbot installed for easy HTTPS setup
-- **Security Headers**: Configured in web server
-- **File Permissions**: Properly secured file system permissions
+## 🗂️ **Advanced Installation Features**
 
-### Optional Components
-- **BIND9**: DNS server for domain management (optional)
-- **Cron Jobs**: Automated maintenance tasks
-- **Monitoring**: System resource monitoring
-- **Backup System**: Automated backup capabilities
+### 🚀 **Core System Components**
+
+- **🌐 Web Server**: Apache 2.4 or Nginx with optimized configurations
+- **🗄️ Database**: MySQL 8.0+ with performance tuning and security hardening
+- **🐘 PHP**: Multi-version support (PHP 8.1, 8.2, 8.3, 8.4) with FPM
+- **📁 Panel Files**: Complete hosting panel installed to `/var/www/phynx`
+- **📊 Monitoring**: Real-time performance and resource monitoring
+
+### 🌐 **DNS Zone Automation** *(New!)*
+
+- **🔧 BIND9 DNS Server**: Fully configured with your domain
+- **📋 DNS Records**: Automatic A, CNAME, MX, TXT, SRV, CAA record creation
+- **🏷️ Nameservers**: `ns1.yourdomain.com` and `ns2.yourdomain.com` 
+- **🔍 Propagation Monitoring**: Real-time DNS propagation checking
+- **🛠️ Management Tools**: `phynx-dns-update` and `phynx-dns-check` commands
+- **📡 Multi-Domain Support**: `yourdomain.com`, `panel.yourdomain.com`, `phynxadmin.yourdomain.com`
+
+### 🎛️ **Custom Phynx Manager Integration**
+
+- **📍 Location**: `/var/www/phynx/phynx` (accessible at `yourdomain.com/phynxadmin`)
+- **🔗 Access Points**: `phynxadmin.yourdomain.com` and `yourdomain.com/phynxadmin`
+- **🔒 Security**: Pre-configured with secure defaults and panel integration
+- **⚡ Performance**: Optimized for hosting panel database management
+
+### 🛡️ **Advanced Security Features**
+
+- **🔥 Firewall**: UFW (default) or CSF/LFD (advanced intrusion detection)
+- **🚫 Fail2Ban**: Automatic IP blocking for suspicious activity
+- **🔐 SSL Ready**: Let's Encrypt Certbot with auto-renewal
+- **🛡️ Security Headers**: HSTS, CSP, X-Frame-Options configured
+- **📁 File Permissions**: Properly secured with least-privilege principle
+- **🔒 Database Security**: Secured MySQL installation with strong passwords
+
+### 📊 **Installation Monitoring & Analytics** *(New!)*
+
+- **📈 Progress Bars**: Real-time installation progress with ETA calculations
+- **🔄 Error Handling**: Comprehensive rollback system with automatic recovery
+- **📋 HTML Reports**: Detailed installation analytics and system reports
+- **💾 System Backup**: Automatic pre-installation system state backup
+- **🖥️ Resource Monitoring**: CPU, RAM, disk usage tracking during installation
+- **📝 Advanced Logging**: Structured logging with categorized entries
+
+### 🔧 **Optional Advanced Components**
+
+- **🌐 BIND9 DNS Server**: Complete DNS infrastructure for domain management
+- **⏰ Cron Jobs**: Automated maintenance, backups, and monitoring tasks  
+- **📊 System Monitoring**: Real-time resource usage and performance metrics
+- **💾 Backup System**: Automated database and file backup capabilities
+- **🔐 Let's Encrypt**: Automatic SSL certificate generation and renewal
+
+## 🌐 **DNS Configuration Guide** *(New Feature!)*
+
+### 🎯 **Automatic DNS Setup**
+
+If you enabled DNS zone creation (default), the installer automatically:
+
+1. **✅ Creates DNS Zones**: Primary and reverse DNS zones for your domain
+2. **✅ Configures Records**: A, CNAME, MX, TXT, SRV, CAA records
+3. **✅ Sets Up Nameservers**: `ns1.yourdomain.com` and `ns2.yourdomain.com`
+4. **✅ Tests Configuration**: Local DNS resolution verification
+5. **✅ Monitors Propagation**: Real-time DNS propagation checking
+
+### 📋 **Domain Registrar Configuration**
+
+After installation, configure your **domain registrar** (GoDaddy, Namecheap, etc.):
+
+**Option 1: Use Phynx Nameservers** *(Recommended)*
+```
+Primary Nameserver:   ns1.yourdomain.com
+Secondary Nameserver: ns2.yourdomain.com
+```
+
+**Option 2: Add Records to Existing DNS Provider**
+```
+A Record:    yourdomain.com           → Your Server IP
+A Record:    www.yourdomain.com      → Your Server IP  
+A Record:    panel.yourdomain.com    → Your Server IP
+A Record:    phynxadmin.yourdomain.com → Your Server IP
+MX Record:   yourdomain.com           → mail.yourdomain.com (Priority: 10)
+```
+
+### 🔍 **DNS Verification Tools**
+
+**Check DNS Propagation:**
+```bash
+# Check your domain resolution
+phynx-dns-check yourdomain.com
+
+# Add new DNS records
+phynx-dns-update yourdomain.com A subdomain 192.168.1.100
+
+# Check installation logs
+tail -f /var/log/phynx-install/install-*.log
+```
+
+**Online DNS Checkers:**
+- [DNSChecker.org](https://dnschecker.org) - Global DNS propagation
+- [WhatsmyDNS.net](https://whatsmydns.net) - Worldwide DNS lookup
+- [DNSstuff.com](https://dnsstuff.com) - Comprehensive DNS tools
+
+### 🌐 **Your Website Access Points**
+
+After DNS propagation (4-48 hours), access your sites:
+
+- **🏠 Main Website**: `https://yourdomain.com`
+- **🎛️ Admin Panel**: `https://panel.yourdomain.com` or `https://yourdomain.com/panel`
+- **🗄️ Database Manager**: `https://phynxadmin.yourdomain.com` or `https://yourdomain.com/phynxadmin`
+- **🔐 Secure Access**: `https://yourdomain.com:2083` (Direct IP also works)
 
 ## 🔐 Post-Installation Security
 

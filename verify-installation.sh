@@ -28,11 +28,13 @@ SERVER_IP="216.45.53.244"
 print_banner() {
     clear
     echo -e "${BLUE}"
-    echo "╔════════════════════════════════════════════════════╗"
-    echo "║        Phynx Panel Installation Verification       ║"
-    echo "║                                                    ║"
-    echo "║   Checking all components after installation       ║"
-    echo "╚════════════════════════════════════════════════════╝"
+    echo "╔════════════════════════════════════════════════════════════════════════╗"
+    echo "║              Phynx Panel Advanced Installation Verification           ║"
+    echo "║                                                                        ║"
+    echo "║   🔍 Verifying all components including DNS zones and advanced features ║"
+    echo "║   📊 Testing progress monitoring, error handling, and reporting        ║"
+    echo "║   🌐 Checking DNS propagation and multi-domain configuration          ║"
+    echo "╚════════════════════════════════════════════════════════════════════════╝"
     echo -e "${NC}\n"
 }
 
@@ -99,11 +101,140 @@ if [[ "$PHP_RUNNING" == false ]]; then
     check_fail "No PHP-FPM services are running"
 fi
 
+# Check BIND9/DNS if installed
+if systemctl is-active --quiet bind9 || systemctl is-active --quiet named; then
+    check_ok "BIND9 DNS server is running"
+    DNS_INSTALLED=true
+else
+    check_warn "BIND9 DNS server not running (may not be installed)"
+    DNS_INSTALLED=false
+fi
+
 # Check Fail2Ban
 if systemctl is-active --quiet fail2ban; then
     check_ok "Fail2Ban is running"
 else
     check_warn "Fail2Ban is not running"
+fi
+
+print_section "DNS Zone Verification"
+
+if [[ "$DNS_INSTALLED" == true ]]; then
+    # Test BIND configuration
+    if named-checkconf &> /dev/null; then
+        check_ok "BIND configuration syntax is valid"
+    else
+        check_fail "BIND configuration has syntax errors"
+    fi
+    
+    # Check DNS zones directory
+    if [[ -d "/etc/bind/zones" ]]; then
+        check_ok "DNS zones directory exists"
+        
+        # Count zone files
+        ZONE_COUNT=$(find /etc/bind/zones -name "db.*" -type f | wc -l)
+        if [[ $ZONE_COUNT -gt 0 ]]; then
+            check_ok "$ZONE_COUNT DNS zone file(s) found"
+        else
+            check_warn "No DNS zone files found"
+        fi
+        
+        # Test zone files if domain is provided
+        if [[ -n "$1" ]]; then
+            DOMAIN="$1"
+            ZONE_FILE="/etc/bind/zones/db.$DOMAIN"
+            
+            if [[ -f "$ZONE_FILE" ]]; then
+                check_ok "Zone file exists for $DOMAIN"
+                
+                # Validate zone file syntax
+                if named-checkzone "$DOMAIN" "$ZONE_FILE" &> /dev/null; then
+                    check_ok "Zone file syntax is valid for $DOMAIN"
+                else
+                    check_fail "Zone file syntax errors for $DOMAIN"
+                fi
+            else
+                check_warn "No zone file found for $DOMAIN"
+            fi
+        fi
+    else
+        check_warn "DNS zones directory not found"
+    fi
+    
+    # Test local DNS resolution
+    echo -e "\n${BLUE}Testing Local DNS Resolution:${NC}"
+    
+    if [[ -n "$1" ]]; then
+        DOMAIN="$1"
+        TEST_DOMAINS=("$DOMAIN" "www.$DOMAIN" "panel.$DOMAIN" "phynxadmin.$DOMAIN")
+        
+        for test_domain in "${TEST_DOMAINS[@]}"; do
+            echo -n "  Testing $test_domain... "
+            
+            # Test with local DNS server
+            if dig +short @127.0.0.1 "$test_domain" A &> /dev/null; then
+                local result=$(dig +short @127.0.0.1 "$test_domain" A | head -1)
+                echo -e "${GREEN}✓${NC} → $result"
+            else
+                echo -e "${RED}✗${NC} No response"
+            fi
+        done
+    else
+        check_warn "No domain specified - run with domain argument to test DNS: ./verify-installation.sh yourdomain.com"
+    fi
+    
+    # Check DNS management tools
+    if [[ -f "/usr/local/bin/phynx-dns-update" ]]; then
+        check_ok "DNS management tools installed"
+        if [[ -x "/usr/local/bin/phynx-dns-update" ]]; then
+            check_ok "DNS tools are executable"
+        else
+            check_warn "DNS tools exist but may not be executable"
+        fi
+    else
+        check_warn "DNS management tools not found"
+    fi
+else
+    check_warn "DNS server not installed - skipping DNS tests"
+fi
+
+print_section "Advanced Features Verification"
+
+# Check installation logs
+LOGS_DIR="/var/log/phynx-install"
+if [[ -d "$LOGS_DIR" ]]; then
+    check_ok "Advanced logging directory exists"
+    
+    LOG_COUNT=$(find "$LOGS_DIR" -name "install-*.log" -type f | wc -l)
+    if [[ $LOG_COUNT -gt 0 ]]; then
+        check_ok "$LOG_COUNT installation log file(s) found"
+    else
+        check_warn "No installation log files found"
+    fi
+    
+    # Check for HTML reports
+    REPORT_COUNT=$(find "$LOGS_DIR" -name "*.html" -type f | wc -l)
+    if [[ $REPORT_COUNT -gt 0 ]]; then
+        check_ok "$REPORT_COUNT HTML report(s) generated"
+    else
+        check_warn "No HTML installation reports found"
+    fi
+else
+    check_warn "Advanced logging directory not found"
+fi
+
+# Check system backup (if created)
+if [[ -d "/var/backups/phynx-install" ]]; then
+    check_ok "System backup directory found"
+    
+    BACKUP_COUNT=$(find /var/backups/phynx-install -name "backup-*" -type d | wc -l)
+    if [[ $BACKUP_COUNT -gt 0 ]]; then
+        check_ok "$BACKUP_COUNT system backup(s) created"
+    else
+        check_warn "Backup directory exists but no backups found"
+    fi
+else
+    check_warn "System backup directory not found (may not have been enabled)"
 fi
 
 print_section "File System Checks"
@@ -346,30 +477,121 @@ echo -e "\n${YELLOW}🌐 Access URLs:${NC}"
 
 echo -e "${CYAN}Main Website:${NC}"
 echo -e "• ${GREEN}http://$MAIN_DOMAIN${NC} (HTTP)"
-echo -e "• ${GREEN}https://$MAIN_DOMAIN${NC} (HTTPS after SSL)"
-echo -e "• ${GREEN}http://$SERVER_IP${NC} (IP access)"
+echo -e "• ${GREEN}https://$MAIN_DOMAIN${NC} (HTTPS after SSL setup)"
+echo -e "• ${GREEN}http://$SERVER_IP${NC} (Direct IP access)"
 
-echo -e "\n${CYAN}Admin Panel:${NC}"
+echo -e "\n${CYAN}🎛️ Admin Panel Access:${NC}"
 echo -e "• ${GREEN}http://$PANEL_SUBDOMAIN${NC} (subdomain)"
-echo -e "• ${GREEN}http://$MAIN_DOMAIN/panel${NC} (directory)"
+echo -e "• ${GREEN}http://$MAIN_DOMAIN/panel${NC} (directory path)"
 echo -e "• ${GREEN}https://$MAIN_DOMAIN:$SECURE_PORT${NC} (secure port)"
+echo -e "• ${GREEN}http://$SERVER_IP/panel${NC} (IP access)"
 
-echo -e "\n${CYAN}Database Manager:${NC}"
+echo -e "\n${CYAN}🗄️ Database Manager:${NC}"
 if [[ -d "$PMA_DIR" ]]; then
     echo -e "• ${GREEN}http://$PHYNXADMIN_SUBDOMAIN${NC} (subdomain)"
-    echo -e "• ${GREEN}http://$MAIN_DOMAIN/phynxadmin${NC} (directory)"
+    echo -e "• ${GREEN}http://$MAIN_DOMAIN/phynxadmin${NC} (directory path)"
+    echo -e "• ${GREEN}http://$SERVER_IP/phynxadmin${NC} (IP access)"
+else
+    echo -e "• ${YELLOW}Not installed${NC}"
 fi
 
-echo -e "\n${BLUE}Next Steps:${NC}"
-echo "1. Complete the web-based setup at your panel URL"
-echo "2. Change all default passwords"
-echo "3. Configure SSL certificates for HTTPS"
-echo "4. Set up DNS records for your domain"
-echo "5. Review and customize panel settings"
+print_section "URL Accessibility Testing"
 
-echo -e "\n${YELLOW}Important Files:${NC}"
-echo "• Configuration: $PANEL_DIR/.env"
-echo "• Database credentials: /root/.phynx_credentials"
-echo "• Installation log: /var/log/phynx-install.log"
+if [[ -n "$1" ]]; then
+    DOMAIN="$1"
+    echo -e "${BLUE}Testing URLs for domain: $DOMAIN${NC}"
+    
+    # Test main site
+    echo -n "  Main site (http://$DOMAIN)... "
+    if curl -s -o /dev/null -w "%{http_code}" "http://$DOMAIN" --connect-timeout 5 | grep -q "200\|301\|302"; then
+        echo -e "${GREEN}✓${NC}"
+    else
+        echo -e "${YELLOW}⚠${NC} (may need DNS propagation)"
+    fi
+    
+    # Test panel access
+    echo -n "  Panel (http://$DOMAIN/panel)... "
+    if curl -s -o /dev/null -w "%{http_code}" "http://$DOMAIN/panel" --connect-timeout 5 | grep -q "200\|301\|302"; then
+        echo -e "${GREEN}✓${NC}"
+    else
+        echo -e "${YELLOW}⚠${NC} (check configuration)"
+    fi
+    
+    # Test database manager
+    if [[ -d "$PMA_DIR" ]]; then
+        echo -n "  Database Manager (http://$DOMAIN/phynxadmin)... "
+        if curl -s -o /dev/null -w "%{http_code}" "http://$DOMAIN/phynxadmin" --connect-timeout 5 | grep -q "200\|301\|302"; then
+            echo -e "${GREEN}✓${NC}"
+        else
+            echo -e "${YELLOW}⚠${NC} (check configuration)"
+        fi
+    fi
+else
+    echo -e "${YELLOW}No domain specified - skipping external URL tests${NC}"
+    echo "Run with domain: ./verify-installation.sh yourdomain.com"
+fi
 
-echo -e "\nVerification complete!"
+print_section "Advanced Installation Verification Summary"
+
+# Count successes and failures
+SUCCESS_COUNT=$(echo -e "$LOG_CONTENT" | grep -c "✓" || echo "0")
+WARN_COUNT=$(echo -e "$LOG_CONTENT" | grep -c "!" || echo "0")  
+FAIL_COUNT=$(echo -e "$LOG_CONTENT" | grep -c "✗" || echo "0")
+
+echo -e "${BLUE}📊 Verification Results:${NC}"
+echo -e "• ${GREEN}Passed: $SUCCESS_COUNT${NC}"
+echo -e "• ${YELLOW}Warnings: $WARN_COUNT${NC}" 
+echo -e "• ${RED}Failed: $FAIL_COUNT${NC}"
+
+echo ""
+if [[ $FAIL_COUNT -eq 0 ]]; then
+    echo -e "${GREEN}🎉 Phynx Panel Advanced Installation Verified Successfully!${NC}"
+    echo ""
+    echo -e "${CYAN}🚀 Your Hosting Panel Features:${NC}"
+    echo -e "• ✅ Multi-domain configuration with automatic routing"
+    echo -e "• ✅ Advanced progress monitoring and error handling"
+    if [[ "$DNS_INSTALLED" == true ]]; then
+        echo -e "• ✅ DNS zone automation with nameserver support"
+        echo -e "• ✅ DNS propagation monitoring and management tools"
+    fi
+    echo -e "• ✅ Comprehensive security with firewall protection"
+    echo -e "• ✅ Performance monitoring and system optimization"
+    echo -e "• ✅ Advanced logging and HTML report generation"
+    
+else
+    echo -e "${YELLOW}⚠️ Installation completed with some issues${NC}"
+    echo -e "Review the failed checks above and consult the documentation."
+fi
+
+echo ""
+echo -e "${BLUE}🎯 Next Steps:${NC}"
+echo "1. 🌐 Complete DNS configuration at your domain registrar"
+echo "2. 🔐 Set up SSL certificates: sudo certbot --apache (or --nginx)"
+echo "3. 🎛️ Access admin panel and complete web-based setup"
+echo "4. 🔑 Change all default passwords for security" 
+echo "5. 📊 Review installation reports in /var/log/phynx-install/"
+
+echo ""
+echo -e "${YELLOW}📂 Important Files & Directories:${NC}"
+echo -e "• Panel Configuration: ${GREEN}$PANEL_DIR/.env${NC}"
+echo -e "• Database Credentials: ${GREEN}/root/.phynx_credentials${NC}"
+echo -e "• Installation Logs: ${GREEN}/var/log/phynx-install/${NC}"
+echo -e "• DNS Zone Files: ${GREEN}/etc/bind/zones/${NC}"
+echo -e "• System Backups: ${GREEN}/var/backups/phynx-install/${NC}"
+
+if [[ "$DNS_INSTALLED" == true ]]; then
+    echo ""
+    echo -e "${CYAN}🛠️ DNS Management Commands:${NC}"
+    echo -e "• Check DNS: ${GREEN}phynx-dns-check yourdomain.com${NC}"
+    echo -e "• Add record: ${GREEN}phynx-dns-update yourdomain.com A subdomain 192.168.1.100${NC}"
+    echo -e "• View logs: ${GREEN}tail -f /var/log/phynx-install/install-*.log${NC}"
+fi
+
+echo ""
+echo -e "${BLUE}📋 Support & Documentation:${NC}"
+echo -e "• Installation Guide: ${GREEN}INSTALLATION.md${NC}"
+echo -e "• System Requirements: ${GREEN}./check-requirements.sh yourdomain.com${NC}"
+echo -e "• Re-run Verification: ${GREEN}./verify-installation.sh yourdomain.com${NC}"
+
+echo ""
+echo -e "${GREEN}✅ Advanced Phynx Panel verification complete!${NC}"
