@@ -2553,6 +2553,9 @@ create_ssl_certificate() {
     local domain="${1:-$MAIN_DOMAIN}"
     echo -e "${CYAN}Creating SSL certificate for $domain...${NC}"
     
+    # Ensure default SSL certificates exist as fallback
+    ensure_default_ssl_certificates
+    
     # Install certbot if not already installed
     if ! command -v certbot >/dev/null 2>&1; then
         echo -e "${YELLOW}Installing Certbot...${NC}"
@@ -2679,14 +2682,14 @@ configure_web_server() {
     if [[ "$WEB_SERVER" == "nginx" ]]; then
         configure_nginx_vhost
     else
-        configure_apache_vhost
+        configure_apache_http_vhost
         # Fix Apache ServerName warning if not already fixed
         fix_apache_servername
     fi
 }
 
-configure_apache_vhost() {
-    log "Creating Apache virtual host configuration for multiple domains and ports..."
+configure_apache_http_vhost() {
+    log "Creating Apache HTTP virtual host configuration..."
     
     cat > "$APACHE_SITE" << EOF
 # Main website - phynx.one (HTTP)
@@ -2830,7 +2833,28 @@ configure_apache_vhost() {
     ErrorLog \${APACHE_LOG_DIR}/${PHYNXADMIN_SUBDOMAIN}_error.log
     CustomLog \${APACHE_LOG_DIR}/${PHYNXADMIN_SUBDOMAIN}_access.log combined
 </VirtualHost>
+EOF
 
+    # Enable the site
+    a2ensite phynx.conf >/dev/null 2>&1
+    ok "HTTP virtual hosts configured"
+}
+
+configure_apache_ssl_vhost() {
+    local domain="${1:-$MAIN_DOMAIN}"
+    
+    log "Creating Apache SSL virtual host configuration for $domain..."
+    
+    # Validate SSL certificates exist
+    if ! validate_ssl_certificates "$domain"; then
+        warn "No SSL certificates found for $domain. SSL virtual hosts will not be configured."
+        return 1
+    fi
+    
+    # Create SSL configuration file
+    local ssl_config="/etc/apache2/sites-available/phynx-ssl.conf"
+    
+    cat > "$ssl_config" << EOF
 # SSL VirtualHosts (443 for standard HTTPS)
 <IfModule mod_ssl.c>
 # Main website HTTPS - phynx.one:443
@@ -3016,12 +3040,14 @@ configure_apache_vhost() {
 </IfModule>
 EOF
 
-    # Enable site and required modules
-    a2ensite "$PANEL_NAME"
-    a2dissite 000-default 2>/dev/null || true
-    systemctl reload apache2
+    # Replace certificate placeholders with actual certificate paths
+    sed -i "s|/etc/ssl/certs/ssl-cert-snakeoil.pem|$SSL_CERT_FILE|g" "$ssl_config"
+    sed -i "s|/etc/ssl/private/ssl-cert-snakeoil.key|$SSL_KEY_FILE|g" "$ssl_config"
     
-    ok "Apache virtual host configured"
+    # Enable SSL site
+    a2ensite phynx-ssl.conf >/dev/null 2>&1
+    ok "SSL virtual hosts configured with certificates: $SSL_CERT_FILE, $SSL_KEY_FILE"
+    return 0
 }
 
 configure_nginx_vhost() {
@@ -4272,12 +4298,18 @@ install_phynx() {
     # SSL and web server configuration
     show_step_header 4 "SSL and Web Server Configuration"
     show_progress 6 14 "Configuring SSL certificates and virtual hosts" "Setting up SSL and domain configurations..."
-    create_ssl_certificate "$MAIN_DOMAIN"
+    
+    # Configure HTTP virtual hosts first
     configure_web_server
     
-    # Update SSL certificate paths in Apache configuration
-    if [[ "$WEB_SERVER" == "apache" ]]; then
-        update_apache_ssl_certificates "$MAIN_DOMAIN"
+    # Create SSL certificates
+    if create_ssl_certificate "$MAIN_DOMAIN"; then
+        # Configure SSL virtual hosts with proper certificates
+        if [[ "$WEB_SERVER" == "apache" ]]; then
+            configure_apache_ssl_vhost "$MAIN_DOMAIN"
+        fi
+    else
+        warn "SSL certificate creation failed. SSL virtual hosts will not be configured."
     fi
     track_operation "web_config"
     
