@@ -2529,22 +2529,36 @@ validate_ssl_certificates() {
     
     # Check for Let's Encrypt certificates first
     if [[ -f "/etc/letsencrypt/live/$domain/fullchain.pem" && -f "/etc/letsencrypt/live/$domain/privkey.pem" ]]; then
-        export SSL_CERT_FILE="/etc/letsencrypt/live/$domain/fullchain.pem"
-        export SSL_KEY_FILE="/etc/letsencrypt/live/$domain/privkey.pem"
-        log "Found Let's Encrypt certificates for $domain"
-        return 0
+        if [[ -r "/etc/letsencrypt/live/$domain/fullchain.pem" && -r "/etc/letsencrypt/live/$domain/privkey.pem" ]]; then
+            export SSL_CERT_FILE="/etc/letsencrypt/live/$domain/fullchain.pem"
+            export SSL_KEY_FILE="/etc/letsencrypt/live/$domain/privkey.pem"
+            log "Found valid Let's Encrypt certificates for $domain"
+            return 0
+        fi
     fi
     
     # Check for self-signed certificates
     if [[ -f "/etc/ssl/certs/$domain.crt" && -f "/etc/ssl/private/$domain.key" ]]; then
-        export SSL_CERT_FILE="/etc/ssl/certs/$domain.crt"
-        export SSL_KEY_FILE="/etc/ssl/private/$domain.key"
-        log "Found self-signed certificates for $domain"
-        return 0
+        if [[ -r "/etc/ssl/certs/$domain.crt" && -r "/etc/ssl/private/$domain.key" ]]; then
+            export SSL_CERT_FILE="/etc/ssl/certs/$domain.crt"
+            export SSL_KEY_FILE="/etc/ssl/private/$domain.key"
+            log "Found valid self-signed certificates for $domain"
+            return 0
+        fi
     fi
     
-    # No certificates found
-    warn "No SSL certificates found for $domain"
+    # Check for snakeoil certificates as fallback
+    if [[ -f "/etc/ssl/certs/ssl-cert-snakeoil.pem" && -f "/etc/ssl/private/ssl-cert-snakeoil.key" ]]; then
+        if [[ -r "/etc/ssl/certs/ssl-cert-snakeoil.pem" && -r "/etc/ssl/private/ssl-cert-snakeoil.key" ]]; then
+            export SSL_CERT_FILE="/etc/ssl/certs/ssl-cert-snakeoil.pem"
+            export SSL_KEY_FILE="/etc/ssl/private/ssl-cert-snakeoil.key"
+            log "Using default snakeoil certificates for $domain (fallback)"
+            return 0
+        fi
+    fi
+    
+    # No valid certificates found
+    error "No valid SSL certificates found for $domain"
     return 1
 }
 
@@ -2845,11 +2859,23 @@ configure_apache_ssl_vhost() {
     
     log "Creating Apache SSL virtual host configuration for $domain..."
     
+    # Clean up any existing SSL configurations that might conflict
+    a2dissite phynx-ssl.conf >/dev/null 2>&1 || true
+    rm -f /etc/apache2/sites-available/phynx-ssl.conf
+    
     # Validate SSL certificates exist
     if ! validate_ssl_certificates "$domain"; then
-        warn "No SSL certificates found for $domain. SSL virtual hosts will not be configured."
+        error "Cannot configure SSL virtual hosts: No valid SSL certificates found for $domain"
         return 1
     fi
+    
+    # Verify certificate files are actually readable
+    if [[ ! -r "$SSL_CERT_FILE" || ! -r "$SSL_KEY_FILE" ]]; then
+        error "SSL certificate files are not readable: $SSL_CERT_FILE, $SSL_KEY_FILE"
+        return 1
+    fi
+    
+    log "Using SSL certificates: $SSL_CERT_FILE, $SSL_KEY_FILE"
     
     # Create SSL configuration file
     local ssl_config="/etc/apache2/sites-available/phynx-ssl.conf"
@@ -3044,10 +3070,29 @@ EOF
     sed -i "s|/etc/ssl/certs/ssl-cert-snakeoil.pem|$SSL_CERT_FILE|g" "$ssl_config"
     sed -i "s|/etc/ssl/private/ssl-cert-snakeoil.key|$SSL_KEY_FILE|g" "$ssl_config"
     
-    # Enable SSL site
-    a2ensite phynx-ssl.conf >/dev/null 2>&1
-    ok "SSL virtual hosts configured with certificates: $SSL_CERT_FILE, $SSL_KEY_FILE"
-    return 0
+    # Test Apache configuration with SSL before enabling
+    log "Testing Apache SSL configuration..."
+    if ! apache2ctl configtest 2>/dev/null; then
+        error "Apache SSL configuration test failed. SSL virtual hosts will not be enabled."
+        rm -f "$ssl_config"
+        return 1
+    fi
+    
+    # Enable SSL site only if configuration test passes
+    if a2ensite phynx-ssl.conf >/dev/null 2>&1; then
+        # Test configuration again after enabling
+        if apache2ctl configtest 2>/dev/null; then
+            ok "SSL virtual hosts configured and enabled with certificates: $SSL_CERT_FILE, $SSL_KEY_FILE"
+            return 0
+        else
+            error "Apache configuration failed after enabling SSL site"
+            a2dissite phynx-ssl.conf >/dev/null 2>&1
+            return 1
+        fi
+    else
+        error "Failed to enable SSL site configuration"
+        return 1
+    fi
 }
 
 configure_nginx_vhost() {
@@ -4306,10 +4351,19 @@ install_phynx() {
     if create_ssl_certificate "$MAIN_DOMAIN"; then
         # Configure SSL virtual hosts with proper certificates
         if [[ "$WEB_SERVER" == "apache" ]]; then
-            configure_apache_ssl_vhost "$MAIN_DOMAIN"
+            if ! configure_apache_ssl_vhost "$MAIN_DOMAIN"; then
+                warn "SSL virtual host configuration failed. Continuing with HTTP-only setup."
+                # Ensure Apache can still start without SSL
+                systemctl reload apache2 || systemctl restart apache2
+            fi
         fi
     else
-        warn "SSL certificate creation failed. SSL virtual hosts will not be configured."
+        warn "SSL certificate creation failed. Continuing with HTTP-only setup."
+        # Ensure no SSL sites are enabled that might cause startup issues
+        if [[ "$WEB_SERVER" == "apache" ]]; then
+            a2dissite phynx-ssl.conf >/dev/null 2>&1 || true
+            systemctl reload apache2 || systemctl restart apache2
+        fi
     fi
     track_operation "web_config"
     
