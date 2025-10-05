@@ -1974,6 +1974,102 @@ install_core_packages() {
     ok "Core packages installed successfully"
 }
 
+# Configure Apache ports with duplicate prevention
+configure_apache_ports() {
+    log "Configuring Apache ports..."
+    
+    local ports_conf="/etc/apache2/ports.conf"
+    
+    # Create backup of ports.conf
+    cp "$ports_conf" "$ports_conf.backup-$(date +%Y%m%d_%H%M%S)" 2>/dev/null || true
+    
+    # Remove any existing duplicate Listen directives
+    log "Cleaning up duplicate Listen directives..."
+    
+    # Create a clean ports.conf with unique Listen directives
+    {
+        echo "# If you just change the port or add more ports here, you will likely also"
+        echo "# have to change the VirtualHost statement in"
+        echo "# /etc/apache2/sites-enabled/000-default.conf"
+        echo ""
+        echo "Listen 80"
+        echo ""
+        echo "<IfModule ssl_module>"
+        echo "    Listen $HTTPS_PORT ssl"
+        if [[ "$SECURE_PORT" != "$HTTPS_PORT" ]]; then
+            echo "    Listen $SECURE_PORT ssl"
+        fi
+        echo "</IfModule>"
+        echo ""
+        echo "<IfModule mod_gnutls.c>"
+        echo "    Listen $HTTPS_PORT ssl"
+        if [[ "$SECURE_PORT" != "$HTTPS_PORT" ]]; then
+            echo "    Listen $SECURE_PORT ssl"  
+        fi
+        echo "</IfModule>"
+    } > "$ports_conf"
+    
+    log "Apache ports configured: 80 (HTTP), $HTTPS_PORT (HTTPS), $SECURE_PORT (Secure)"
+}
+
+# Fix common Apache configuration issues
+fix_apache_config_issues() {
+    log "Attempting to fix Apache configuration issues..."
+    
+    # Fix ports.conf issues
+    local ports_conf="/etc/apache2/ports.conf"
+    if [[ -f "$ports_conf" ]]; then
+        # Check for duplicate Listen directives and fix them
+        local error_output
+        error_output=$(apache2ctl configtest 2>&1)
+        
+        if echo "$error_output" | grep -q "multiple Listeners on the same IP:port"; then
+            warn "Detected multiple Listen directives on same port - fixing..."
+            configure_apache_ports
+        fi
+        
+        if echo "$error_output" | grep -q "Cannot define multiple Listeners"; then
+            warn "Detected duplicate Listen configuration - rebuilding ports.conf..."
+            configure_apache_ports
+        fi
+    fi
+    
+    # Ensure required directories exist
+    mkdir -p /var/log/apache2
+    touch /var/log/apache2/error.log /var/log/apache2/access.log
+    chown www-data:www-data /var/log/apache2/*.log 2>/dev/null || true
+    
+    # Fix permissions on Apache configuration files
+    chown -R root:root /etc/apache2/ 2>/dev/null || true
+    chmod 644 /etc/apache2/ports.conf 2>/dev/null || true
+    
+    # Disable any problematic default sites that might conflict
+    a2dissite 000-default default-ssl 2>/dev/null || true
+    
+    log "Apache configuration fixes applied"
+}
+
+# Configure Apache ServerName directive
+configure_apache_servername() {
+    local apache_conf="/etc/apache2/apache2.conf"
+    
+    # Remove any existing ServerName directives to prevent duplicates
+    sed -i '/^ServerName\|# Global ServerName directive/d' "$apache_conf"
+    
+    # Add the ServerName directive
+    {
+        echo ""
+        echo "# Global ServerName directive to suppress FQDN warning"
+        if [[ -n "$MAIN_DOMAIN" && "$MAIN_DOMAIN" != "localhost" ]]; then
+            echo "ServerName www.$MAIN_DOMAIN"
+            log "Set global ServerName to www.$MAIN_DOMAIN"
+        else
+            echo "ServerName $SERVER_IP"
+            log "Set global ServerName to $SERVER_IP (fallback)"
+        fi
+    } >> "$apache_conf"
+}
+
 # Install web server (Apache or Nginx)
 install_web_server() {
     if [[ "$WEB_SERVER" == "nginx" ]]; then
@@ -1991,26 +2087,11 @@ install_apache() {
     # Enable required modules
     a2enmod rewrite ssl proxy proxy_fcgi setenvif headers
     
-    # Configure custom ports (port 80 is already default in Apache)
-    if ! grep -q "Listen $HTTPS_PORT ssl" /etc/apache2/ports.conf; then
-        echo "Listen $HTTPS_PORT ssl" >> /etc/apache2/ports.conf
-    fi
-    if ! grep -q "Listen $SECURE_PORT ssl" /etc/apache2/ports.conf; then
-        echo "Listen $SECURE_PORT ssl" >> /etc/apache2/ports.conf
-    fi
+    # Configure Apache ports with proper duplicate prevention
+    configure_apache_ports
     
     # Set global ServerName to suppress FQDN warning
-    if ! grep -q "^ServerName" /etc/apache2/apache2.conf; then
-        echo "" >> /etc/apache2/apache2.conf
-        echo "# Global ServerName directive to suppress FQDN warning" >> /etc/apache2/apache2.conf
-        if [[ -n "$MAIN_DOMAIN" && "$MAIN_DOMAIN" != "localhost" ]]; then
-            echo "ServerName www.$MAIN_DOMAIN" >> /etc/apache2/apache2.conf
-            log "Set global ServerName to www.$MAIN_DOMAIN"
-        else
-            echo "ServerName $SERVER_IP" >> /etc/apache2/apache2.conf
-            log "Set global ServerName to $SERVER_IP (fallback)"
-        fi
-    fi
+    configure_apache_servername
     
     # Test Apache configuration before starting
     log "Testing Apache configuration..."
@@ -2019,12 +2100,8 @@ install_apache() {
         # Show detailed error for debugging
         apache2ctl configtest
         
-        # Try to fix common issues
-        # Ensure required directories exist
-        mkdir -p /var/log/apache2
-        touch /var/log/apache2/error.log
-        touch /var/log/apache2/access.log
-        chown www-data:www-data /var/log/apache2/*.log
+        # Fix common Apache configuration issues
+        fix_apache_config_issues
         
         # Test again after fixes
         if ! apache2ctl configtest 2>/dev/null; then
