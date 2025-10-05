@@ -1062,7 +1062,7 @@ create_system_backup() {
 
 # Create DNS zones and records automatically
 setup_dns_zones() {
-    info "Setting up DNS zones for $MAIN_DOMAIN"
+    log "Setting up DNS zones for $MAIN_DOMAIN"
     
     # Ensure BIND9 is installed for DNS management
     if ! command -v named &> /dev/null; then
@@ -1105,7 +1105,7 @@ create_primary_dns_zone() {
     # Create zones directory if it doesn't exist
     mkdir -p "$zone_dir"
     
-    info "Creating primary DNS zone for $MAIN_DOMAIN"
+    log "Creating primary DNS zone for $MAIN_DOMAIN"
     
     # Get current date serial (YYYYMMDDNN format)
     local serial=$(date +%Y%m%d01)
@@ -1175,7 +1175,7 @@ create_reverse_dns_zone() {
     local reverse_zone=$(echo "$SERVER_IP" | awk -F. '{print $3"."$2"."$1}').in-addr.arpa
     local reverse_file="/etc/bind/zones/db.$reverse_zone"
     
-    info "Creating reverse DNS zone for $SERVER_IP"
+    log "Creating reverse DNS zone for $SERVER_IP"
     
     # Extract last octet of IP for PTR record
     local last_octet=$(echo "$SERVER_IP" | awk -F. '{print $4}')
@@ -1215,7 +1215,7 @@ EOF
 
 # Configure nameservers in BIND
 configure_nameservers() {
-    info "Configuring nameservers in BIND"
+    log "Configuring nameservers in BIND"
     
     # Backup original named.conf.local
     cp /etc/bind/named.conf.local /etc/bind/named.conf.local.backup.$(date +%Y%m%d)
@@ -1253,7 +1253,7 @@ EOF
 
 # Add comprehensive DNS records
 add_dns_records() {
-    info "Adding comprehensive DNS records"
+    log "Adding comprehensive DNS records"
     
     # Create additional records for common hosting services
     local zone_file="/etc/bind/zones/db.$MAIN_DOMAIN"
@@ -1276,7 +1276,7 @@ EOF
 
 # Verify DNS setup and configuration
 verify_dns_setup() {
-    info "Verifying DNS configuration"
+    log "Verifying DNS configuration"
     
     # Test BIND configuration syntax
     if ! named-checkconf; then
@@ -1307,7 +1307,7 @@ verify_dns_setup() {
 
 # Check DNS propagation and external accessibility
 check_dns_propagation() {
-    info "Checking DNS propagation for $MAIN_DOMAIN"
+    log "Checking DNS propagation for $MAIN_DOMAIN"
     
     # Array of public DNS servers to test against
     local dns_servers=("8.8.8.8" "1.1.1.1" "208.67.222.222" "9.9.9.9")
@@ -1390,7 +1390,7 @@ monitor_dns_propagation() {
     local attempt=1
     local check_interval=30
     
-    info "Starting DNS propagation monitoring..."
+    log "Starting DNS propagation monitoring..."
     echo -e "${CYAN}Monitoring DNS propagation for $MAIN_DOMAIN (checking every ${check_interval}s)${NC}"
     
     while [[ $attempt -le $max_attempts ]]; do
@@ -1415,7 +1415,7 @@ monitor_dns_propagation() {
 
 # Create DNS management tools
 create_dns_management_tools() {
-    info "Creating DNS management tools"
+    log "Creating DNS management tools"
     
     # Create DNS update script
     cat > /usr/local/bin/phynx-dns-update << 'EOF'
@@ -1522,7 +1522,7 @@ show_dns_completion_info() {
 
 # Test local DNS resolution
 test_local_dns() {
-    info "Testing local DNS resolution"
+    log "Testing local DNS resolution"
     
     local tests_passed=0
     local total_tests=0
