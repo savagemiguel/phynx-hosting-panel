@@ -73,7 +73,7 @@ print_banner() {
     clear
     echo -e "${BLUE}"
     echo "╔════════════════════════════════════════════════════════════════════════════════╗"
-    echo "║                        ${PANEL_DISPLAY_NAME} Installer v${PANEL_VERSION}                        ║"
+    echo "║                        ${PANEL_DISPLAY_NAME} Installer v${PANEL_VERSION}                      ║"
     echo "║                                                                                ║"
     echo "║  Enhanced installation script with custom Phynx deployment                  ║"
     echo "║  Supports Ubuntu 22.04+ with comprehensive security features                  ║"
@@ -283,6 +283,21 @@ restore_file() {
         rm -f "$backup"
         log "Restored: $original"
     fi
+}
+
+# Track operation for progress monitoring
+add_operation() {
+    local operation_name="$1"
+    ROLLBACK_OPERATIONS+=("$operation_name")
+    log_structured "INFO" "operation" "Starting operation: $operation_name"
+}
+
+# Track completed operation
+track_operation() {
+    local operation_name="$1"
+    ROLLBACK_OPERATIONS+=("$operation_name")
+    INSTALLATION_STATS[operations]=$((INSTALLATION_STATS[operations] + 1))
+    log_structured "INFO" "operation" "Completed operation: $operation_name"
 }
 
 # Execute rollback
@@ -1486,7 +1501,7 @@ interactive_confirm() {
 show_installation_summary() {
     clear
     echo -e "${PURPLE}╔════════════════════════════════════════════════════════════════════════════════╗${NC}"
-    echo -e "${PURPLE}║                           🚀 Phynx Installation Summary                         ║${NC}"
+    echo -e "${PURPLE}║                           🚀 Phynx Installation Summary                      ║${NC}"
     echo -e "${PURPLE}╚════════════════════════════════════════════════════════════════════════════════╝${NC}"
     echo ""
     
@@ -1551,7 +1566,7 @@ interactive_menu() {
     while true; do
         clear
         echo -e "${PURPLE}╔════════════════════════════════════════════════════════════════════════════════╗${NC}"
-        echo -e "${PURPLE}║                      🎛️  Phynx Installation Configuration                       ║${NC}"
+        echo -e "${PURPLE}║                      🎛️  Phynx Installation Configuration                    ║${NC}"
         echo -e "${PURPLE}╚════════════════════════════════════════════════════════════════════════════════╝${NC}"
         echo ""
         echo -e "${CYAN}Current Configuration:${NC}"
@@ -1610,9 +1625,6 @@ interactive_menu() {
                 INSTALL_CSF=$([ "$INSTALL_CSF" == "yes" ] && echo "no" || echo "yes")
                 ;;
             "7")
-                SETUP_DNS_ZONES=$([ "$SETUP_DNS_ZONES" == "yes" ] && echo "no" || echo "yes")
-                ;;
-            "8")
                 SETUP_DNS_ZONES=$([ "$SETUP_DNS_ZONES" == "yes" ] && echo "no" || echo "yes")
                 ;;
             "8")
@@ -3653,7 +3665,7 @@ display_installation_summary() {
     
     echo ""
     echo -e "${GREEN}╔════════════════════════════════════════════════════╗${NC}"
-    echo -e "${GREEN}║              Installation Complete!                ║${NC}"
+    echo -e "${GREEN}║              Installation Complete!               ║${NC}"
     echo -e "${GREEN}╚════════════════════════════════════════════════════╝${NC}"
     echo ""
     echo -e "${CYAN}🎉 Phynx Hosting Panel has been successfully installed!${NC}"
@@ -3757,11 +3769,12 @@ initialize_logging() {
 # Initialize installation statistics
 initialize_installation_stats() {
     declare -gA INSTALLATION_STATS
+    declare -ga ROLLBACK_OPERATIONS
     INSTALLATION_STATS[start_time]=$(date +%s)
     INSTALLATION_STATS[steps_completed]=0
     INSTALLATION_STATS[total_steps]=10
     INSTALLATION_STATS[operations]=0
-    INSTALLATION_STATS[rollback_operations]=()
+    ROLLBACK_OPERATIONS=()
     
     set_total_steps
     log_structured "INFO" "stats" "Installation statistics initialized"
