@@ -2083,6 +2083,39 @@ debug_apache_config() {
         echo -e "\n${YELLOW}8. Phynx site configuration:${NC}"
         head -50 /etc/apache2/sites-enabled/phynx.conf
     fi
+    
+    echo -e "\n${YELLOW}9. SSL Certificate validation:${NC}"
+    if [[ -f /etc/apache2/sites-enabled/phynx.conf ]]; then
+        # Check SSL certificate paths in configuration
+        local ssl_cert_lines
+        ssl_cert_lines=$(grep -n "SSLCertificateFile\|SSLCertificateKeyFile" /etc/apache2/sites-enabled/phynx.conf)
+        if [[ -n "$ssl_cert_lines" ]]; then
+            echo "SSL certificate configuration:"
+            echo "$ssl_cert_lines"
+            echo ""
+            
+            # Check if certificate files exist
+            local cert_files
+            cert_files=$(grep "SSLCertificateFile\|SSLCertificateKeyFile" /etc/apache2/sites-enabled/phynx.conf | awk '{print $2}')
+            for cert_file in $cert_files; do
+                if [[ -f "$cert_file" ]]; then
+                    echo -e "${GREEN}✓ Certificate exists: $cert_file${NC}"
+                    # Check certificate validity
+                    if [[ "$cert_file" == *.pem || "$cert_file" == *.crt ]]; then
+                        local cert_info
+                        cert_info=$(openssl x509 -in "$cert_file" -noout -subject -dates 2>/dev/null)
+                        if [[ -n "$cert_info" ]]; then
+                            echo "  Certificate info: $cert_info"
+                        fi
+                    fi
+                else
+                    echo -e "${RED}✗ Certificate missing: $cert_file${NC}"
+                fi
+            done
+        else
+            echo -e "${YELLOW}No SSL certificate configuration found${NC}"
+        fi
+    fi
 }
 
 # Fix Apache ServerName warning
@@ -2490,6 +2523,31 @@ configure_php_ini() {
     sed -i 's/^;session.cookie_secure.*/session.cookie_secure = 1/' "$PHP_INI"
 }
 
+# Validate SSL certificate paths and set environment variables
+validate_ssl_certificates() {
+    local domain="${1:-$MAIN_DOMAIN}"
+    
+    # Check for Let's Encrypt certificates first
+    if [[ -f "/etc/letsencrypt/live/$domain/fullchain.pem" && -f "/etc/letsencrypt/live/$domain/privkey.pem" ]]; then
+        export SSL_CERT_FILE="/etc/letsencrypt/live/$domain/fullchain.pem"
+        export SSL_KEY_FILE="/etc/letsencrypt/live/$domain/privkey.pem"
+        log "Found Let's Encrypt certificates for $domain"
+        return 0
+    fi
+    
+    # Check for self-signed certificates
+    if [[ -f "/etc/ssl/certs/$domain.crt" && -f "/etc/ssl/private/$domain.key" ]]; then
+        export SSL_CERT_FILE="/etc/ssl/certs/$domain.crt"
+        export SSL_KEY_FILE="/etc/ssl/private/$domain.key"
+        log "Found self-signed certificates for $domain"
+        return 0
+    fi
+    
+    # No certificates found
+    warn "No SSL certificates found for $domain"
+    return 1
+}
+
 # Create SSL certificate for the domain
 create_ssl_certificate() {
     local domain="${1:-$MAIN_DOMAIN}"
@@ -2531,6 +2589,10 @@ create_ssl_certificate() {
     if certbot certonly --apache --non-interactive --agree-tos --email "$ADMIN_EMAIL" -d "$domain" -d "www.$domain" -d "$PANEL_SUBDOMAIN" -d "$PHYNXADMIN_SUBDOMAIN" 2>/dev/null; then
         echo -e "${GREEN}✓ Successfully obtained Let's Encrypt certificate${NC}"
         
+        # Set certificate paths for Apache configuration
+        export SSL_CERT_FILE="/etc/letsencrypt/live/$domain/fullchain.pem"
+        export SSL_KEY_FILE="/etc/letsencrypt/live/$domain/privkey.pem"
+        
         # Set up auto-renewal
         (crontab -l 2>/dev/null; echo "0 12 * * * /usr/bin/certbot renew --quiet") | crontab -
         
@@ -2554,11 +2616,61 @@ create_ssl_certificate() {
         chmod 600 "$KEY_DIR/$domain.key"
         chmod 644 "$SSL_DIR/$domain.crt"
         
+        # Store certificate paths for Apache configuration
+        export SSL_CERT_FILE="$SSL_DIR/$domain.crt"
+        export SSL_KEY_FILE="$KEY_DIR/$domain.key"
+        
         echo -e "${GREEN}✓ Created self-signed SSL certificate${NC}"
         echo -e "${YELLOW}Note: Self-signed certificates will show security warnings in browsers${NC}"
         echo -e "${YELLOW}Consider getting a proper SSL certificate later${NC}"
         
         return 0
+    fi
+}
+
+# Ensure default SSL certificates exist
+ensure_default_ssl_certificates() {
+    # Install ssl-cert package to get snakeoil certificates
+    if ! dpkg -l | grep -q ssl-cert; then
+        log "Installing ssl-cert package for default certificates"
+        apt-get update -qq
+        apt-get install -y ssl-cert
+    fi
+    
+    # Generate snakeoil certificates if they don't exist
+    if [[ ! -f "/etc/ssl/certs/ssl-cert-snakeoil.pem" || ! -f "/etc/ssl/private/ssl-cert-snakeoil.key" ]]; then
+        log "Generating default snakeoil SSL certificates"
+        make-ssl-cert generate-default-snakeoil --force-overwrite
+    fi
+    
+    ok "Default SSL certificates are available"
+}
+
+# Update SSL certificate paths in Apache configuration
+update_apache_ssl_certificates() {
+    local domain="${1:-$MAIN_DOMAIN}"
+    
+    # Ensure default certificates exist as fallback
+    ensure_default_ssl_certificates
+    
+    if ! validate_ssl_certificates "$domain"; then
+        warn "No SSL certificates found for $domain, keeping default snakeoil certificates"
+        return 1
+    fi
+    
+    log "Updating Apache SSL certificate paths for $domain"
+    
+    # Update SSL certificate paths in the Apache site configuration
+    if [[ -f "$APACHE_SITE" ]]; then
+        # Replace certificate file paths with the actual certificate paths
+        sed -i "s|SSLCertificateFile /etc/ssl/certs/ssl-cert-snakeoil.pem|SSLCertificateFile $SSL_CERT_FILE|g" "$APACHE_SITE"
+        sed -i "s|SSLCertificateKeyFile /etc/ssl/private/ssl-cert-snakeoil.key|SSLCertificateKeyFile $SSL_KEY_FILE|g" "$APACHE_SITE"
+        
+        ok "Updated SSL certificate paths in Apache configuration"
+        return 0
+    else
+        error "Apache site configuration file not found: $APACHE_SITE"
+        return 1
     fi
 }
 
@@ -2731,9 +2843,18 @@ configure_apache_vhost() {
     Alias /panel "$PANEL_DIR"
     Alias /phynxadmin "$PMA_DIR"
     
-    # SSL Configuration (will be managed by Certbot)
+    # SSL Configuration
     SSLEngine on
-    # SSLCertificateFile and SSLCertificateKeyFile will be added by Certbot
+    
+    # SSL Certificate paths (dynamically set based on certificate type)
+    # These will be updated after certificate creation
+    SSLCertificateFile /etc/ssl/certs/ssl-cert-snakeoil.pem
+    SSLCertificateKeyFile /etc/ssl/private/ssl-cert-snakeoil.key
+    
+    # SSL Security settings
+    SSLProtocol all -SSLv3 -TLSv1 -TLSv1.1
+    SSLCipherSuite ECDHE+AESGCM:ECDHE+AES256:ECDHE+AES128:!aNULL:!MD5:!DSS
+    SSLHonorCipherOrder on
     
     # Security headers
     Header always set Strict-Transport-Security "max-age=63072000; includeSubDomains; preload"
@@ -2796,8 +2917,18 @@ configure_apache_vhost() {
     ServerName $PANEL_SUBDOMAIN
     DocumentRoot $PANEL_DIR
     
-    # SSL Configuration (will be managed by Certbot)
+    # SSL Configuration
     SSLEngine on
+    
+    # SSL Certificate paths (dynamically set based on certificate type)
+    # These will be updated after certificate creation
+    SSLCertificateFile /etc/ssl/certs/ssl-cert-snakeoil.pem
+    SSLCertificateKeyFile /etc/ssl/private/ssl-cert-snakeoil.key
+    
+    # SSL Security settings
+    SSLProtocol all -SSLv3 -TLSv1 -TLSv1.1
+    SSLCipherSuite ECDHE+AESGCM:ECDHE+AES256:ECDHE+AES128:!aNULL:!MD5:!DSS
+    SSLHonorCipherOrder on
     
     # Security headers
     Header always set Strict-Transport-Security "max-age=63072000; includeSubDomains; preload"
@@ -2837,8 +2968,18 @@ configure_apache_vhost() {
     ServerName www.$MAIN_DOMAIN
     DocumentRoot $PANEL_DIR
     
-    # SSL Configuration (will be managed by Certbot)
+    # SSL Configuration
     SSLEngine on
+    
+    # SSL Certificate paths (dynamically set based on certificate type)
+    # These will be updated after certificate creation
+    SSLCertificateFile /etc/ssl/certs/ssl-cert-snakeoil.pem
+    SSLCertificateKeyFile /etc/ssl/private/ssl-cert-snakeoil.key
+    
+    # SSL Security settings
+    SSLProtocol all -SSLv3 -TLSv1 -TLSv1.1
+    SSLCipherSuite ECDHE+AESGCM:ECDHE+AES256:ECDHE+AES128:!aNULL:!MD5:!DSS
+    SSLHonorCipherOrder on
     
     # Security headers
     Header always set Strict-Transport-Security "max-age=63072000; includeSubDomains; preload"
@@ -4133,6 +4274,11 @@ install_phynx() {
     show_progress 6 14 "Configuring SSL certificates and virtual hosts" "Setting up SSL and domain configurations..."
     create_ssl_certificate "$MAIN_DOMAIN"
     configure_web_server
+    
+    # Update SSL certificate paths in Apache configuration
+    if [[ "$WEB_SERVER" == "apache" ]]; then
+        update_apache_ssl_certificates "$MAIN_DOMAIN"
+    fi
     track_operation "web_config"
     
     # Panel installation
