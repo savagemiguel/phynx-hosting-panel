@@ -1999,11 +1999,55 @@ install_apache() {
         echo "Listen $SECURE_PORT ssl" >> /etc/apache2/ports.conf
     fi
     
+    # Set global ServerName to suppress FQDN warning
+    if ! grep -q "^ServerName" /etc/apache2/apache2.conf; then
+        echo "" >> /etc/apache2/apache2.conf
+        echo "# Global ServerName directive to suppress FQDN warning" >> /etc/apache2/apache2.conf
+        if [[ -n "$MAIN_DOMAIN" && "$MAIN_DOMAIN" != "localhost" ]]; then
+            echo "ServerName $MAIN_DOMAIN" >> /etc/apache2/apache2.conf
+            log "Set global ServerName to $MAIN_DOMAIN"
+        else
+            echo "ServerName $SERVER_IP" >> /etc/apache2/apache2.conf
+            log "Set global ServerName to $SERVER_IP (fallback)"
+        fi
+    fi
+    
     # Configure Apache for PHP-FPM
     systemctl enable apache2
     systemctl start apache2
     
+    # Test Apache configuration and reload if needed
+    if apache2ctl configtest >/dev/null 2>&1; then
+        systemctl reload apache2
+        log "Apache configuration validated and reloaded"
+    else
+        warn "Apache configuration test failed, but continuing installation"
+    fi
+    
     ok "Apache2 installed and configured"
+}
+
+# Fix Apache ServerName warning
+fix_apache_servername() {
+    if command -v apache2 >/dev/null 2>&1; then
+        if ! grep -q "^ServerName" /etc/apache2/apache2.conf; then
+            echo "" >> /etc/apache2/apache2.conf
+            echo "# Global ServerName directive to suppress FQDN warning" >> /etc/apache2/apache2.conf
+            if [[ -n "$MAIN_DOMAIN" && "$MAIN_DOMAIN" != "localhost" ]]; then
+                echo "ServerName $MAIN_DOMAIN" >> /etc/apache2/apache2.conf
+                log "Fixed Apache ServerName warning using domain: $MAIN_DOMAIN"
+            else
+                echo "ServerName $SERVER_IP" >> /etc/apache2/apache2.conf
+                log "Fixed Apache ServerName warning using IP: $SERVER_IP"
+            fi
+            
+            # Test and reload configuration
+            if apache2ctl configtest >/dev/null 2>&1; then
+                systemctl reload apache2 >/dev/null 2>&1
+                log "Apache configuration reloaded successfully"
+            fi
+        fi
+    fi
 }
 
 install_nginx() {
@@ -2466,6 +2510,8 @@ configure_web_server() {
         configure_nginx_vhost
     else
         configure_apache_vhost
+        # Fix Apache ServerName warning if not already fixed
+        fix_apache_servername
     fi
 }
 
