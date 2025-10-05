@@ -3817,7 +3817,7 @@ install_phynx() {
     INSTALLATION_STATS[start_time]=$(date +%s)
     
     # Initialize progress tracking
-    show_progress 0 "Initializing installation"
+    show_progress 0 14 "Initializing installation" "Setting up installation environment..."
     
     # System backup if enabled
     if [[ "$ENABLE_BACKUP" == "yes" ]]; then
@@ -3827,7 +3827,7 @@ install_phynx() {
     
     # System validation
     show_step_header 1 "System Validation"
-    show_progress 5 "Validating system requirements"
+    show_progress 5 14 "Validating system requirements" "Running system compatibility checks..."
     validate_system
     validate_dependencies
     
@@ -3836,19 +3836,19 @@ install_phynx() {
         show_installation_summary
     fi
     
-    show_progress 10 "Preparing installation environment"
+    show_progress 10 14 "Preparing installation environment" "Setting up directories and permissions..."
     add_operation "installation_prep"
     
     # Core system setup
     show_step_header 2 "Core System Setup"
-    show_progress 15 "Updating system and installing core packages"
+    show_progress 15 14 "Updating system and installing core packages" "Installing dependencies and updates..."
     update_system
     install_core_packages
     track_operation "core_setup"
     
     # Web server and database setup
     show_step_header 3 "Web Server and Database Setup"  
-    show_progress 25 "Installing web server and database"
+    show_progress 25 14 "Installing web server and database" "Setting up Apache, MySQL, PHP and related services..."
     install_mysql_server
     install_web_server
     secure_mysql_installation
@@ -3856,14 +3856,14 @@ install_phynx() {
     
     # SSL and web server configuration
     show_step_header 4 "SSL and Web Server Configuration"
-    show_progress 40 "Configuring SSL certificates and virtual hosts"
+    show_progress 40 14 "Configuring SSL certificates and virtual hosts" "Setting up SSL and domain configurations..."
     create_ssl_certificate
     configure_web_server
     track_operation "web_config"
     
     # Panel installation
     show_step_header 5 "Panel Installation"
-    show_progress 55 "Installing Phynx panel files and configuration"
+    show_progress 55 14 "Installing Phynx panel files and configuration" "Copying panel files and configuring database..."
     install_panel_files
     create_environment_config
     configure_php
@@ -3891,7 +3891,7 @@ install_phynx() {
     # DNS Zone Setup
     if [[ "$SETUP_DNS_ZONES" == "yes" ]]; then
         show_step_header 8 "DNS Zone Configuration"
-        show_progress 75 "Creating DNS zones and records"
+        show_progress 75 14 "Creating DNS zones and records" "Configuring BIND9 and creating zone files..."
         setup_dns_zones
         create_dns_management_tools
         track_operation "dns_setup"
@@ -3900,12 +3900,12 @@ install_phynx() {
     
     # Security setup
     show_step_header $(if [[ "$SETUP_DNS_ZONES" == "yes" ]]; then echo "9"; else echo "8"; fi) "Security Configuration"
-    show_progress 80 "Configuring firewall and security"
+    show_progress 80 14 "Configuring firewall and security" "Setting up security configurations..."
     configure_firewall
     configure_fail2ban
     
     if [[ "$INSTALL_CSF" == "yes" ]]; then
-        show_progress 85 "Installing CSF firewall"
+        show_progress 85 14 "Installing CSF firewall" "Configuring advanced firewall protection..."
         install_csf
         track_operation "csf_install"
     fi
@@ -3914,18 +3914,18 @@ install_phynx() {
     
     # Final configuration
     show_step_header $(if [[ "$SETUP_DNS_ZONES" == "yes" ]]; then echo "10"; else echo "9"; fi) "Final Configuration"
-    show_progress 90 "Setting up cron jobs and importing schema"
+    show_progress 90 14 "Setting up cron jobs and importing schema" "Configuring database schema and scheduled tasks..."
     setup_cron_jobs
     import_database_schema
     track_operation "final_config"
     
     # System optimization and health checks
     show_step_header $(if [[ "$SETUP_DNS_ZONES" == "yes" ]]; then echo "11"; else echo "10"; fi) "System Optimization"
-    show_progress 95 "Optimizing system and performing health checks"
+    show_progress 95 14 "Optimizing system and performing health checks" "Running final optimizations and validations..."
     optimize_system
     perform_health_check
     
-    show_progress 100 "Installation completed successfully"
+    show_progress 100 14 "Installation completed successfully" "All components installed and configured!"
     
     # Calculate final statistics
     INSTALLATION_STATS[end_time]=$(date +%s)
