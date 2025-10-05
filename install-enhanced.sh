@@ -1577,7 +1577,7 @@ test_local_dns() {
 # Interactive confirmation with enhanced UI
 interactive_confirm() {
     local message="$1"
-    local default="${2:-n}"
+    local default="${2:-y}"
     local timeout="${3:-30}"
     
     echo -e "\n${CYAN}╔══════════════════════════════════════════════════╗${NC}"
@@ -1589,7 +1589,7 @@ interactive_confirm() {
     echo -e "${CYAN}╚══════════════════════════════════════════════════╝${NC}"
     
     local answer
-    read -t "$timeout" -p "Continue? [y/N]: " answer 2>/dev/null || answer="$default"
+    read -t "$timeout" -p "Continue? [Y/n]: " answer 2>/dev/null || answer="$default"
     
     [[ "$answer" =~ ^[Yy]$ ]]
 }
@@ -2004,8 +2004,8 @@ install_apache() {
         echo "" >> /etc/apache2/apache2.conf
         echo "# Global ServerName directive to suppress FQDN warning" >> /etc/apache2/apache2.conf
         if [[ -n "$MAIN_DOMAIN" && "$MAIN_DOMAIN" != "localhost" ]]; then
-            echo "ServerName $MAIN_DOMAIN" >> /etc/apache2/apache2.conf
-            log "Set global ServerName to $MAIN_DOMAIN"
+            echo "ServerName www.$MAIN_DOMAIN" >> /etc/apache2/apache2.conf
+            log "Set global ServerName to www.$MAIN_DOMAIN"
         else
             echo "ServerName $SERVER_IP" >> /etc/apache2/apache2.conf
             log "Set global ServerName to $SERVER_IP (fallback)"
@@ -2034,8 +2034,8 @@ fix_apache_servername() {
             echo "" >> /etc/apache2/apache2.conf
             echo "# Global ServerName directive to suppress FQDN warning" >> /etc/apache2/apache2.conf
             if [[ -n "$MAIN_DOMAIN" && "$MAIN_DOMAIN" != "localhost" ]]; then
-                echo "ServerName $MAIN_DOMAIN" >> /etc/apache2/apache2.conf
-                log "Fixed Apache ServerName warning using domain: $MAIN_DOMAIN"
+                echo "ServerName www.$MAIN_DOMAIN" >> /etc/apache2/apache2.conf
+                log "Fixed Apache ServerName warning using domain: www.$MAIN_DOMAIN"
             else
                 echo "ServerName $SERVER_IP" >> /etc/apache2/apache2.conf
                 log "Fixed Apache ServerName warning using IP: $SERVER_IP"
@@ -2351,9 +2351,9 @@ deploy_custom_pma() {
     
     log "Deploying custom Phynx..."
     
-    if [[ -d "phynx" ]]; then
+    if [[ -d "phynxadmin" ]]; then
         # Copy your custom Phynx files
-        cp -r phynx "$PMA_DIR"
+        cp -r phynxadmin "$PMA_DIR"
         
         # Set proper ownership and permissions
         chown -R www-data:www-data "$PMA_DIR"
@@ -2521,8 +2521,7 @@ configure_apache_vhost() {
     cat > "$APACHE_SITE" << EOF
 # Main website - phynx.one (HTTP)
 <VirtualHost *:80>
-    ServerName $MAIN_DOMAIN
-    ServerAlias www.$MAIN_DOMAIN
+    ServerName www.$MAIN_DOMAIN
     ServerAlias $SERVER_IP
     DocumentRoot /var/www/html
     
@@ -2666,8 +2665,8 @@ configure_apache_vhost() {
 <IfModule mod_ssl.c>
 # Main website HTTPS - phynx.one:443
 <VirtualHost *:443>
-    ServerName $MAIN_DOMAIN
-    ServerAlias www.$MAIN_DOMAIN
+    ServerName www.$MAIN_DOMAIN
+    ServerAlias $MAIN_DOMAIN
     DocumentRoot /var/www/html
     
     # Admin panel aliases
@@ -2777,7 +2776,7 @@ configure_apache_vhost() {
 
 # Secure admin panel - phynx.one:2083
 <VirtualHost *:$SECURE_PORT>
-    ServerName $MAIN_DOMAIN
+    ServerName www.$MAIN_DOMAIN
     DocumentRoot $PANEL_DIR
     
     # SSL Configuration (will be managed by Certbot)
@@ -3236,6 +3235,8 @@ configure_ufw_firewall() {
     ufw allow 80/tcp
     ufw allow $HTTPS_PORT/tcp
     ufw allow $SECURE_PORT/tcp
+    ufw allow http
+    ufw allow https
     
     # Allow DNS if BIND is installed
     if [[ "$INSTALL_BIND" == "yes" ]]; then
