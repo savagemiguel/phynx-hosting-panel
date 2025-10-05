@@ -4087,6 +4087,10 @@ parse_arguments() {
                 SETUP_DNS_ZONES="no"
                 shift
                 ;;
+            --debug-apache)
+                debug_apache_config
+                exit 0
+                ;;
             --help|-h)
                 show_help
                 exit 0
@@ -4116,6 +4120,7 @@ show_help() {
     echo "  --csf                       Install CSF/LFD instead of UFW firewall"
     echo "  --setup-dns                 Automatically create DNS zones (default: yes)"
     echo "  --no-dns                    Skip automatic DNS zone creation"
+    echo "  --debug-apache              Run Apache configuration diagnostics and exit"
     echo "  --silent                    Skip interactive prompts (use defaults)"
     echo "  --help, -h                  Show this help message"
     echo ""
