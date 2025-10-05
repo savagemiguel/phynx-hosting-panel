@@ -634,7 +634,7 @@ perform_health_check() {
     [[ "$WEB_SERVER" == "apache" ]] && services_to_check+=("apache2")
     [[ "$WEB_SERVER" == "nginx" ]] && services_to_check+=("nginx")
     services_to_check+=("mysql" "php8.4-fpm")
-    [[ "$INSTALL_BIND" == "yes" ]] && services_to_check+=("bind9")
+    [[ "$INSTALL_BIND" == "yes" ]] && services_to_check+=("named")
     
     for service in "${services_to_check[@]}"; do
         if systemctl is-active --quiet "$service"; then
@@ -1085,8 +1085,8 @@ setup_dns_zones() {
     add_dns_records
     
     # Restart BIND9 to apply changes
-    systemctl restart bind9
-    systemctl enable bind9
+    systemctl restart named
+    systemctl enable named
     
     # Verify DNS configuration
     verify_dns_setup
@@ -1291,12 +1291,12 @@ verify_dns_setup() {
     fi
     
     # Check if BIND is running
-    if ! systemctl is-active --quiet bind9; then
+    if ! systemctl is-active --quiet named; then
         warn "BIND9 service not running, attempting to start..."
-        systemctl start bind9
+        systemctl start named
         sleep 2
         
-        if ! systemctl is-active --quiet bind9; then
+        if ! systemctl is-active --quiet named; then
             error "Failed to start BIND9 service"
             return 1
         fi
@@ -1450,7 +1450,7 @@ NEW_SERIAL=$((CURRENT_SERIAL + 1))
 sed -i "s/$CURRENT_SERIAL/$NEW_SERIAL/" "$ZONE_FILE"
 
 # Reload BIND
-systemctl reload bind9
+systemctl reload named
 
 echo "DNS record added successfully: $NAME $TYPE $VALUE"
 EOF
@@ -2012,19 +2012,77 @@ install_apache() {
         fi
     fi
     
+    # Test Apache configuration before starting
+    log "Testing Apache configuration..."
+    if ! apache2ctl configtest 2>/dev/null; then
+        warn "Apache configuration test failed, attempting to fix..."
+        # Show detailed error for debugging
+        apache2ctl configtest
+        
+        # Try to fix common issues
+        # Ensure required directories exist
+        mkdir -p /var/log/apache2
+        touch /var/log/apache2/error.log
+        touch /var/log/apache2/access.log
+        chown www-data:www-data /var/log/apache2/*.log
+        
+        # Test again after fixes
+        if ! apache2ctl configtest 2>/dev/null; then
+            err "Apache configuration is invalid. Please check manually."
+            return 1
+        fi
+    fi
+    
     # Configure Apache for PHP-FPM
     systemctl enable apache2
-    systemctl start apache2
     
-    # Test Apache configuration and reload if needed
-    if apache2ctl configtest >/dev/null 2>&1; then
+    # Start Apache with error handling
+    if systemctl start apache2; then
+        log "Apache2 started successfully"
         systemctl reload apache2
         log "Apache configuration validated and reloaded"
     else
-        warn "Apache configuration test failed, but continuing installation"
+        err "Failed to start Apache2. Running diagnostics..."
+        debug_apache_config
+        return 1
     fi
     
     ok "Apache2 installed and configured"
+}
+
+# Debug Apache configuration issues
+debug_apache_config() {
+    log "Debugging Apache configuration..."
+    
+    echo -e "${CYAN}Apache Configuration Debug Information:${NC}"
+    echo -e "${YELLOW}1. Testing Apache syntax:${NC}"
+    apache2ctl configtest
+    
+    echo -e "\n${YELLOW}2. Apache version and modules:${NC}"
+    apache2ctl -V
+    echo -e "\n${YELLOW}3. Loaded modules:${NC}"
+    apache2ctl -M | head -20
+    
+    echo -e "\n${YELLOW}4. Apache error log (last 20 lines):${NC}"
+    if [[ -f /var/log/apache2/error.log ]]; then
+        tail -20 /var/log/apache2/error.log
+    else
+        echo "Apache error log not found"
+    fi
+    
+    echo -e "\n${YELLOW}5. Apache service status:${NC}"
+    systemctl status apache2 --no-pager -l
+    
+    echo -e "\n${YELLOW}6. Port usage:${NC}"
+    ss -tlnp | grep -E ':(80|443|2083)'
+    
+    echo -e "\n${YELLOW}7. Apache configuration files:${NC}"
+    ls -la /etc/apache2/sites-enabled/
+    
+    if [[ -f /etc/apache2/sites-enabled/phynx.conf ]]; then
+        echo -e "\n${YELLOW}8. Phynx site configuration:${NC}"
+        head -50 /etc/apache2/sites-enabled/phynx.conf
+    fi
 }
 
 # Fix Apache ServerName warning
