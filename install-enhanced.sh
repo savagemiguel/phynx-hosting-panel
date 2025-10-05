@@ -117,11 +117,13 @@ show_progress() {
     local message="$3"
     local sub_message="$4"
     
-    # Calculate percentage
-    local percent=$((current * 100 / total))
-    
-    # Calculate progress bar length (50 characters)
-    local completed=$((current * 50 / total))
+    # Calculate percentage (prevent division by zero)
+    local percent=0
+    local completed=0
+    if [[ $total -gt 0 ]]; then
+        percent=$((current * 100 / total))
+        completed=$((current * 50 / total))
+    fi
     local remaining=$((50 - completed))
     
     # Create progress bar
@@ -136,8 +138,14 @@ show_progress() {
     # Calculate time elapsed and ETA
     local current_time=$(date +%s)
     local elapsed=$((current_time - INSTALLATION_START_TIME))
-    local estimated_total_time=$((elapsed * total / current))
-    local eta=$((estimated_total_time - elapsed))
+    local estimated_total_time=0
+    local eta=0
+    
+    # Prevent division by zero
+    if [[ $current -gt 0 ]]; then
+        estimated_total_time=$((elapsed * total / current))
+        eta=$((estimated_total_time - elapsed))
+    fi
     
     # Format time
     local elapsed_fmt=$(printf "%02d:%02d" $((elapsed / 60)) $((elapsed % 60)))
@@ -1240,8 +1248,11 @@ check_dns_propagation() {
         fi
     done
     
-    # Calculate propagation percentage
-    local propagation_percent=$((propagation_success * 100 / total_servers))
+    # Calculate propagation percentage (prevent division by zero)
+    local propagation_percent=0
+    if [[ $total_servers -gt 0 ]]; then
+        propagation_percent=$((propagation_success * 100 / total_servers))
+    fi
     
     echo ""
     echo -e "${CYAN}DNS Propagation Status:${NC}"
@@ -1462,7 +1473,11 @@ test_local_dns() {
     
     echo ""
     echo -e "${CYAN}Local DNS Test Results:${NC}"
-    echo -e "• Passed: ${GREEN}$tests_passed/$total_tests${NC} ($(( tests_passed * 100 / total_tests ))%)"
+    local test_percent=0
+    if [[ $total_tests -gt 0 ]]; then
+        test_percent=$(( tests_passed * 100 / total_tests ))
+    fi
+    echo -e "• Passed: ${GREEN}$tests_passed/$total_tests${NC} ($test_percent%)"
     
     if [[ $tests_passed -eq $total_tests ]]; then
         ok "Local DNS resolution working perfectly"
