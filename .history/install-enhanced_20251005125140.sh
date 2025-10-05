@@ -3036,14 +3036,12 @@ configure_apache_ssl_vhost() {
     SSLProtocol all -SSLv3 -TLSv1 -TLSv1.1
     SSLCipherSuite ECDHE+AESGCM:ECDHE+AES256:ECDHE+AES128:!aNULL:!MD5:!DSS
     SSLHonorCipherOrder on
+
     
     <Directory "$PANEL_DIR">
-        Options Indexes +FollowSymLinks
-        AllowOverRide All
+        Options -Indexes +FollowSymLinks
+        AllowOverride All
         Require all granted
-        IndexIgnore *
-        Order Allow,Deny
-        Allow from all
         
         <FilesMatch \\.php\$>
             SetHandler "proxy:unix:/run/php/php8.4-fpm.sock|fcgi://localhost/"

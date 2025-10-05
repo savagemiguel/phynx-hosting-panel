@@ -2991,12 +2991,9 @@ configure_apache_ssl_vhost() {
     SSLHonorCipherOrder on
         
     <Directory "$PANEL_DIR">
-        Options Indexes +FollowSymLinks
-        AllowOverRide All
+        Options -Indexes +FollowSymLinks
+        AllowOverride All
         Require all granted
-        IndexIgnore *
-        Order Allow,Deny
-        Allow from all
         
         <FilesMatch \\.php\$>
             SetHandler "proxy:unix:/run/php/php8.4-fpm.sock|fcgi://localhost/"
@@ -3037,13 +3034,17 @@ configure_apache_ssl_vhost() {
     SSLCipherSuite ECDHE+AESGCM:ECDHE+AES256:ECDHE+AES128:!aNULL:!MD5:!DSS
     SSLHonorCipherOrder on
     
+    # Security headers
+    Header always set Strict-Transport-Security "max-age=63072000; includeSubDomains; preload"
+    Header always set X-Frame-Options "SAMEORIGIN"
+    Header always set X-XSS-Protection "1; mode=block"
+    Header always set X-Content-Type-Options "nosniff"
+    Header always set Referrer-Policy "strict-origin-when-cross-origin"
+    
     <Directory "$PANEL_DIR">
-        Options Indexes +FollowSymLinks
-        AllowOverRide All
+        Options -Indexes +FollowSymLinks
+        AllowOverride All
         Require all granted
-        IndexIgnore *
-        Order Allow,Deny
-        Allow from all
         
         <FilesMatch \\.php\$>
             SetHandler "proxy:unix:/run/php/php8.4-fpm.sock|fcgi://localhost/"

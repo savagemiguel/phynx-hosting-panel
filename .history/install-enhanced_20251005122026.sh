@@ -2529,36 +2529,22 @@ validate_ssl_certificates() {
     
     # Check for Let's Encrypt certificates first
     if [[ -f "/etc/letsencrypt/live/$domain/fullchain.pem" && -f "/etc/letsencrypt/live/$domain/privkey.pem" ]]; then
-        if [[ -r "/etc/letsencrypt/live/$domain/fullchain.pem" && -r "/etc/letsencrypt/live/$domain/privkey.pem" ]]; then
-            export SSL_CERT_FILE="/etc/letsencrypt/live/$domain/fullchain.pem"
-            export SSL_KEY_FILE="/etc/letsencrypt/live/$domain/privkey.pem"
-            log "Found valid Let's Encrypt certificates for $domain"
-            return 0
-        fi
+        export SSL_CERT_FILE="/etc/letsencrypt/live/$domain/fullchain.pem"
+        export SSL_KEY_FILE="/etc/letsencrypt/live/$domain/privkey.pem"
+        log "Found Let's Encrypt certificates for $domain"
+        return 0
     fi
     
     # Check for self-signed certificates
     if [[ -f "/etc/ssl/certs/$domain.crt" && -f "/etc/ssl/private/$domain.key" ]]; then
-        if [[ -r "/etc/ssl/certs/$domain.crt" && -r "/etc/ssl/private/$domain.key" ]]; then
-            export SSL_CERT_FILE="/etc/ssl/certs/$domain.crt"
-            export SSL_KEY_FILE="/etc/ssl/private/$domain.key"
-            log "Found valid self-signed certificates for $domain"
-            return 0
-        fi
+        export SSL_CERT_FILE="/etc/ssl/certs/$domain.crt"
+        export SSL_KEY_FILE="/etc/ssl/private/$domain.key"
+        log "Found self-signed certificates for $domain"
+        return 0
     fi
     
-    # Check for snakeoil certificates as fallback
-    if [[ -f "/etc/ssl/certs/ssl-cert-snakeoil.pem" && -f "/etc/ssl/private/ssl-cert-snakeoil.key" ]]; then
-        if [[ -r "/etc/ssl/certs/ssl-cert-snakeoil.pem" && -r "/etc/ssl/private/ssl-cert-snakeoil.key" ]]; then
-            export SSL_CERT_FILE="/etc/ssl/certs/ssl-cert-snakeoil.pem"
-            export SSL_KEY_FILE="/etc/ssl/private/ssl-cert-snakeoil.key"
-            log "Using default snakeoil certificates for $domain (fallback)"
-            return 0
-        fi
-    fi
-    
-    # No valid certificates found
-    error "No valid SSL certificates found for $domain"
+    # No certificates found
+    warn "No SSL certificates found for $domain"
     return 1
 }
 
@@ -2566,9 +2552,6 @@ validate_ssl_certificates() {
 create_ssl_certificate() {
     local domain="${1:-$MAIN_DOMAIN}"
     echo -e "${CYAN}Creating SSL certificate for $domain...${NC}"
-    
-    # Ensure default SSL certificates exist as fallback
-    ensure_default_ssl_certificates
     
     # Install certbot if not already installed
     if ! command -v certbot >/dev/null 2>&1; then
@@ -2620,11 +2603,6 @@ create_ssl_certificate() {
         # Create self-signed certificate as fallback
         SSL_DIR="/etc/ssl/certs"
         KEY_DIR="/etc/ssl/private"
-        C="US"
-        ST="Florida"
-        L="Sarasota"
-        O="Phynx Hosting Panel"
-        OU="Production"
         
         mkdir -p "$SSL_DIR" "$KEY_DIR"
         
@@ -2632,7 +2610,7 @@ create_ssl_certificate() {
         openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
             -keyout "$KEY_DIR/$domain.key" \
             -out "$SSL_DIR/$domain.crt" \
-            -subj "/C=$C/ST=$ST/L=$L/O=$O/OU=$OU/CN=$CN" 2>/dev/null
+            -subj "/C=US/ST=State/L=City/O=Phynx Hosting Panel/OU=SSL Certificate/CN=$domain/emailAddress=$ADMIN_EMAIL"
         
         # Set proper permissions
         chmod 600 "$KEY_DIR/$domain.key"
@@ -2711,55 +2689,52 @@ configure_apache_http_vhost() {
     log "Creating Apache HTTP virtual host configuration..."
     
     cat > "$APACHE_SITE" << EOF
-# Main website - $MAIN_DOMAIN (HTTP)
+# Main website - phynx.one (HTTP)
 <VirtualHost *:80>
-    ServerAdmin $ADMIN_EMAIL
-    ServerName $MAIN_DOMAIN
-    ServerAlias www.$MAIN_DOMAIN
-    DocumentRoot /var/www/$MAIN_DOMAIN/public_html
-    ErrorLog \\${APACHE_LOG_DIR}/${MAIN_DOMAIN}_error.log
-    CustomLog \\${APACHE_LOG_DIR}/${MAIN_DOMAIN}_access.log combined
-
+    ServerName www.$MAIN_DOMAIN
+    ServerAlias $SERVER_IP
+    DocumentRoot /var/www/html
+    
     # Admin panel aliases
     Alias /panel "$PANEL_DIR"
     Alias /phynxadmin "$PMA_DIR"
-
-    <Directory /var/www/$MAIN_DOMAIN/public_html>
-        Options Indexes FollowSymLinks
-        AllowOverRide All
-        IndexIgnore *
+    
+    # Security headers
+    Header always set X-Frame-Options "SAMEORIGIN"
+    Header always set X-XSS-Protection "1; mode=block"
+    Header always set X-Content-Type-Options "nosniff"
+    Header always set Referrer-Policy "strict-origin-when-cross-origin"
+    
+    # Main website directory
+    <Directory /var/www/html>
+        Options -Indexes +FollowSymLinks
+        AllowOverride All
         Require all granted
-        Order Allow,Deny
-        Allow from all
-
+        
         # PHP-FPM configuration
         <FilesMatch \\.php\$>
             SetHandler "proxy:unix:/run/php/php8.4-fpm.sock|fcgi://localhost/"
         </FilesMatch>
     </Directory>
-
+    
+    # Admin panel directory
     <Directory "$PANEL_DIR">
-        Options Indexes FollowSymLinks
-        AllowOverRide All
-        IndexIgnore *
+        Options -Indexes +FollowSymLinks
+        AllowOverride All
         Require all granted
-        Order Allow,Deny
-        Allow from all
-
+        
         # PHP-FPM configuration
         <FilesMatch \\.php\$>
             SetHandler "proxy:unix:/run/php/php8.4-fpm.sock|fcgi://localhost/"
         </FilesMatch>
     </Directory>
-
+    
+    # PhynxAdmin directory
     <Directory "$PMA_DIR">
-        Options Indexes FollowSymLinks
-        AllowOverRide All
-        IndexIgnore *
+        Options -Indexes +FollowSymLinks
+        AllowOverride All
         Require all granted
-        Order Allow,Deny
-        Allow from all
-
+        
         <FilesMatch \\.php\$>
             SetHandler "proxy:unix:/run/php/php8.4-fpm.sock|fcgi://localhost/"
         </FilesMatch>
@@ -2781,22 +2756,22 @@ configure_apache_http_vhost() {
     CustomLog \${APACHE_LOG_DIR}/${MAIN_DOMAIN}_access.log combined
 </VirtualHost>
 
-# Admin panel subdomain - $PANEL_SUBDOMAIN (HTTP)
+# Admin panel subdomain - panel.phynx.one (HTTP)
 <VirtualHost *:80>
-    ServerAdmin $ADMIN_EMAIL
     ServerName $PANEL_SUBDOMAIN
     DocumentRoot $PANEL_DIR
-    ErrorLog \\${APACHE_LOG_DIR}/${PANEL_SUBDOMAIN}_error.log
-    CustomLog \\${APACHE_LOG_DIR}/${PANEL_SUBDOMAIN}_access.log combined
-
+    
+    # Security headers
+    Header always set X-Frame-Options "SAMEORIGIN"
+    Header always set X-XSS-Protection "1; mode=block"
+    Header always set X-Content-Type-Options "nosniff"
+    Header always set Referrer-Policy "strict-origin-when-cross-origin"
+    
     <Directory "$PANEL_DIR">
-        Options Indexes FollowSymLinks
-        AllowOverRide All
-        IndexIgnore *
+        Options -Indexes +FollowSymLinks
+        AllowOverride All
         Require all granted
-        Order Allow,Deny
-        Allow from all
-
+        
         # PHP-FPM configuration
         <FilesMatch \\.php\$>
             SetHandler "proxy:unix:/run/php/php8.4-fpm.sock|fcgi://localhost/"
@@ -2819,22 +2794,22 @@ configure_apache_http_vhost() {
     CustomLog \${APACHE_LOG_DIR}/${PANEL_SUBDOMAIN}_access.log combined
 </VirtualHost>
 
-# Database manager subdomain - $PHYNXADMIN_SUBDOMAIN (HTTP)
+# Database manager subdomain - phynxadmin.phynx.one (HTTP)
 <VirtualHost *:80>
-    ServerAdmin $ADMIN_EMAIL
     ServerName $PHYNXADMIN_SUBDOMAIN
     DocumentRoot $PMA_DIR
-    ErrorLog \\${APACHE_LOG_DIR}/${PHYNXADMIN_SUBDOMAIN}_error.log
-    CustomLog \\${APACHE_LOG_DIR}/${PHYNXADMIN_SUBDOMAIN}_access.log combined
-
+    
+    # Security headers
+    Header always set X-Frame-Options "SAMEORIGIN"
+    Header always set X-XSS-Protection "1; mode=block"
+    Header always set X-Content-Type-Options "nosniff"
+    Header always set Referrer-Policy "strict-origin-when-cross-origin"
+    
     <Directory "$PMA_DIR">
-        Options Indexes FollowSymLinks
-        AllowOverRide All
-        IndexIgnore *
+        Options -Indexes +FollowSymLinks
+        AllowOverride All
         Require all granted
-        Order Allow,Deny
-        Allow from all
-
+        
         <FilesMatch \\.php\$>
             SetHandler "proxy:unix:/run/php/php8.4-fpm.sock|fcgi://localhost/"
         </FilesMatch>
@@ -2867,23 +2842,11 @@ configure_apache_ssl_vhost() {
     
     log "Creating Apache SSL virtual host configuration for $domain..."
     
-    # Clean up any existing SSL configurations that might conflict
-    a2dissite phynx-ssl.conf >/dev/null 2>&1 || true
-    rm -f /etc/apache2/sites-available/phynx-ssl.conf
-    
     # Validate SSL certificates exist
     if ! validate_ssl_certificates "$domain"; then
-        error "Cannot configure SSL virtual hosts: No valid SSL certificates found for $domain"
+        warn "No SSL certificates found for $domain. SSL virtual hosts will not be configured."
         return 1
     fi
-    
-    # Verify certificate files are actually readable
-    if [[ ! -r "$SSL_CERT_FILE" || ! -r "$SSL_KEY_FILE" ]]; then
-        error "SSL certificate files are not readable: $SSL_CERT_FILE, $SSL_KEY_FILE"
-        return 1
-    fi
-    
-    log "Using SSL certificates: $SSL_CERT_FILE, $SSL_KEY_FILE"
     
     # Create SSL configuration file
     local ssl_config="/etc/apache2/sites-available/phynx-ssl.conf"
@@ -2891,37 +2854,41 @@ configure_apache_ssl_vhost() {
     cat > "$ssl_config" << EOF
 # SSL VirtualHosts (443 for standard HTTPS)
 <IfModule mod_ssl.c>
-# Main website HTTPS - $MAIN_DOMAIN:443
+# Main website HTTPS - phynx.one:443
 <VirtualHost *:443>
-    ServerAdmin $ADMIN_EMAIL
-    ServerName $MAIN_DOMAIN
-    ServerAlias www.$MAIN_DOMAIN
-    DocumentRoot /var/www/$MAIN_DOMAIN/public_html
-    ErrorLog \\${APACHE_LOG_DIR}/${MAIN_DOMAIN}_ssl_error.log
-    CustomLog \\${APACHE_LOG_DIR}/${MAIN_DOMAIN}_ssl_access.log combined
-
+    ServerName www.$MAIN_DOMAIN
+    ServerAlias $MAIN_DOMAIN
+    DocumentRoot /var/www/html
+    
     # Admin panel aliases
     Alias /panel "$PANEL_DIR"
     Alias /phynxadmin "$PMA_DIR"
-
+    
     # SSL Configuration
     SSLEngine on
-    SSLCertificateFile /etc/ssl/certs/ssl-cert-$MAIN_DOMAIN.pem
-    SSLCertificateKeyFile /etc/ssl/private/ssl-cert-$MAIN_DOMAIN.key
-
+    
+    # SSL Certificate paths (dynamically set based on certificate type)
+    # These will be updated after certificate creation
+    SSLCertificateFile /etc/ssl/certs/ssl-cert-snakeoil.pem
+    SSLCertificateKeyFile /etc/ssl/private/ssl-cert-snakeoil.key
+    
     # SSL Security settings
     SSLProtocol all -SSLv3 -TLSv1 -TLSv1.1
     SSLCipherSuite ECDHE+AESGCM:ECDHE+AES256:ECDHE+AES128:!aNULL:!MD5:!DSS
     SSLHonorCipherOrder on
     
+    # Security headers
+    Header always set Strict-Transport-Security "max-age=63072000; includeSubDomains; preload"
+    Header always set X-Frame-Options "SAMEORIGIN"
+    Header always set X-XSS-Protection "1; mode=block"
+    Header always set X-Content-Type-Options "nosniff"
+    Header always set Referrer-Policy "strict-origin-when-cross-origin"
+    
     # Main website directory
-    <Directory /var/www/$MAIN_DOMAIN/public_html>
-        Options Indexes +FollowSymLinks
-        AllowOverRide All
+    <Directory /var/www/html>
+        Options -Indexes +FollowSymLinks
+        AllowOverride All
         Require all granted
-        IndexIgnore *
-        Order Allow,Deny
-        Allow from all
         
         <FilesMatch \\.php\$>
             SetHandler "proxy:unix:/run/php/php8.4-fpm.sock|fcgi://localhost/"
@@ -2930,12 +2897,9 @@ configure_apache_ssl_vhost() {
     
     # Admin panel directory
     <Directory "$PANEL_DIR">
-        Options Indexes +FollowSymLinks
-        AllowOverRide All
+        Options -Indexes +FollowSymLinks
+        AllowOverride All
         Require all granted
-        IndexIgnore *
-        Order Allow,Deny
-        Allow from all
         
         <FilesMatch \\.php\$>
             SetHandler "proxy:unix:/run/php/php8.4-fpm.sock|fcgi://localhost/"
@@ -2944,12 +2908,9 @@ configure_apache_ssl_vhost() {
     
     # PhynxAdmin directory
     <Directory "$PMA_DIR">
-        Options Indexes +FollowSymLinks
-        AllowOverRide All
+        Options -Indexes +FollowSymLinks
+        AllowOverride All
         Require all granted
-        IndexIgnore *
-        Order Allow,Deny
-        Allow from all
         
         <FilesMatch \\.php\$>
             SetHandler "proxy:unix:/run/php/php8.4-fpm.sock|fcgi://localhost/"
@@ -2989,14 +2950,18 @@ configure_apache_ssl_vhost() {
     SSLProtocol all -SSLv3 -TLSv1 -TLSv1.1
     SSLCipherSuite ECDHE+AESGCM:ECDHE+AES256:ECDHE+AES128:!aNULL:!MD5:!DSS
     SSLHonorCipherOrder on
-        
+    
+    # Security headers
+    Header always set Strict-Transport-Security "max-age=63072000; includeSubDomains; preload"
+    Header always set X-Frame-Options "SAMEORIGIN"
+    Header always set X-XSS-Protection "1; mode=block"
+    Header always set X-Content-Type-Options "nosniff"
+    Header always set Referrer-Policy "strict-origin-when-cross-origin"
+    
     <Directory "$PANEL_DIR">
-        Options Indexes +FollowSymLinks
-        AllowOverRide All
+        Options -Indexes +FollowSymLinks
+        AllowOverride All
         Require all granted
-        IndexIgnore *
-        Order Allow,Deny
-        Allow from all
         
         <FilesMatch \\.php\$>
             SetHandler "proxy:unix:/run/php/php8.4-fpm.sock|fcgi://localhost/"
@@ -3037,13 +3002,17 @@ configure_apache_ssl_vhost() {
     SSLCipherSuite ECDHE+AESGCM:ECDHE+AES256:ECDHE+AES128:!aNULL:!MD5:!DSS
     SSLHonorCipherOrder on
     
+    # Security headers
+    Header always set Strict-Transport-Security "max-age=63072000; includeSubDomains; preload"
+    Header always set X-Frame-Options "SAMEORIGIN"
+    Header always set X-XSS-Protection "1; mode=block"
+    Header always set X-Content-Type-Options "nosniff"
+    Header always set Referrer-Policy "strict-origin-when-cross-origin"
+    
     <Directory "$PANEL_DIR">
-        Options Indexes +FollowSymLinks
-        AllowOverRide All
+        Options -Indexes +FollowSymLinks
+        AllowOverride All
         Require all granted
-        IndexIgnore *
-        Order Allow,Deny
-        Allow from all
         
         <FilesMatch \\.php\$>
             SetHandler "proxy:unix:/run/php/php8.4-fpm.sock|fcgi://localhost/"
@@ -3072,29 +3041,10 @@ EOF
     sed -i "s|/etc/ssl/certs/ssl-cert-snakeoil.pem|$SSL_CERT_FILE|g" "$ssl_config"
     sed -i "s|/etc/ssl/private/ssl-cert-snakeoil.key|$SSL_KEY_FILE|g" "$ssl_config"
     
-    # Test Apache configuration with SSL before enabling
-    log "Testing Apache SSL configuration..."
-    if ! apache2ctl configtest 2>/dev/null; then
-        error "Apache SSL configuration test failed. SSL virtual hosts will not be enabled."
-        rm -f "$ssl_config"
-        return 1
-    fi
-    
-    # Enable SSL site only if configuration test passes
-    if a2ensite phynx-ssl.conf >/dev/null 2>&1; then
-        # Test configuration again after enabling
-        if apache2ctl configtest 2>/dev/null; then
-            ok "SSL virtual hosts configured and enabled with certificates: $SSL_CERT_FILE, $SSL_KEY_FILE"
-            return 0
-        else
-            error "Apache configuration failed after enabling SSL site"
-            a2dissite phynx-ssl.conf >/dev/null 2>&1
-            return 1
-        fi
-    else
-        error "Failed to enable SSL site configuration"
-        return 1
-    fi
+    # Enable SSL site
+    a2ensite phynx-ssl.conf >/dev/null 2>&1
+    ok "SSL virtual hosts configured with certificates: $SSL_CERT_FILE, $SSL_KEY_FILE"
+    return 0
 }
 
 configure_nginx_vhost() {
@@ -4345,27 +4295,12 @@ install_phynx() {
     # SSL and web server configuration
     show_step_header 4 "SSL and Web Server Configuration"
     show_progress 6 14 "Configuring SSL certificates and virtual hosts" "Setting up SSL and domain configurations..."
-    
-    # Configure HTTP virtual hosts first
+    create_ssl_certificate "$MAIN_DOMAIN"
     configure_web_server
     
-    # Create SSL certificates
-    if create_ssl_certificate "$MAIN_DOMAIN"; then
-        # Configure SSL virtual hosts with proper certificates
-        if [[ "$WEB_SERVER" == "apache" ]]; then
-            if ! configure_apache_ssl_vhost "$MAIN_DOMAIN"; then
-                warn "SSL virtual host configuration failed. Continuing with HTTP-only setup."
-                # Ensure Apache can still start without SSL
-                systemctl reload apache2 || systemctl restart apache2
-            fi
-        fi
-    else
-        warn "SSL certificate creation failed. Continuing with HTTP-only setup."
-        # Ensure no SSL sites are enabled that might cause startup issues
-        if [[ "$WEB_SERVER" == "apache" ]]; then
-            a2dissite phynx-ssl.conf >/dev/null 2>&1 || true
-            systemctl reload apache2 || systemctl restart apache2
-        fi
+    # Update SSL certificate paths in Apache configuration
+    if [[ "$WEB_SERVER" == "apache" ]]; then
+        update_apache_ssl_certificates "$MAIN_DOMAIN"
     fi
     track_operation "web_config"
     

@@ -3038,12 +3038,9 @@ configure_apache_ssl_vhost() {
     SSLHonorCipherOrder on
     
     <Directory "$PANEL_DIR">
-        Options Indexes +FollowSymLinks
-        AllowOverRide All
+        Options -Indexes +FollowSymLinks
+        AllowOverride All
         Require all granted
-        IndexIgnore *
-        Order Allow,Deny
-        Allow from all
         
         <FilesMatch \\.php\$>
             SetHandler "proxy:unix:/run/php/php8.4-fpm.sock|fcgi://localhost/"
