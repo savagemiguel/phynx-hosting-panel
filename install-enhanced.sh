@@ -2046,6 +2046,9 @@ fix_apache_config_issues() {
     # Disable any problematic default sites that might conflict
     a2dissite 000-default default-ssl 2>/dev/null || true
     
+    # Clean up ANSI color codes from configuration files
+    clean_apache_config_ansi_codes
+    
     log "Apache configuration fixes applied"
 }
 
@@ -2056,18 +2059,55 @@ configure_apache_servername() {
     # Remove any existing ServerName directives to prevent duplicates
     sed -i '/^ServerName\|# Global ServerName directive/d' "$apache_conf"
     
+    # Clean up any ANSI color codes that may have been written to the config
+    sed -i 's/\x1b\[[0-9;]*[a-zA-Z]//g' "$apache_conf"
+    
     # Add the ServerName directive
     {
         echo ""
         echo "# Global ServerName directive to suppress FQDN warning"
         if [[ -n "$MAIN_DOMAIN" && "$MAIN_DOMAIN" != "localhost" ]]; then
             echo "ServerName www.$MAIN_DOMAIN"
-            log "Set global ServerName to www.$MAIN_DOMAIN"
         else
             echo "ServerName $SERVER_IP"
-            log "Set global ServerName to $SERVER_IP (fallback)"
         fi
     } >> "$apache_conf"
+    
+    # Log the changes (outside the redirection to avoid writing to config file)
+    if [[ -n "$MAIN_DOMAIN" && "$MAIN_DOMAIN" != "localhost" ]]; then
+        log "Set global ServerName to www.$MAIN_DOMAIN"
+    else
+        log "Set global ServerName to $SERVER_IP (fallback)"
+    fi
+}
+
+# Clean ANSI color codes from Apache configuration files
+clean_apache_config_ansi_codes() {
+    log "Cleaning ANSI color codes from Apache configuration files..."
+    
+    # List of Apache configuration files to clean
+    local config_files=(
+        "/etc/apache2/apache2.conf"
+        "/etc/apache2/ports.conf"
+        "/etc/apache2/sites-available/"*.conf
+        "/etc/apache2/sites-enabled/"*
+    )
+    
+    for config_file in "${config_files[@]}"; do
+        if [[ -f "$config_file" ]]; then
+            # Remove ANSI escape sequences
+            sed -i 's/\x1b\[[0-9;]*[a-zA-Z]//g' "$config_file" 2>/dev/null || true
+            # Remove any lines that start with [INFO], [WARN], [ERROR] etc (log messages)
+            sed -i '/^\[[A-Z]*\]/d' "$config_file" 2>/dev/null || true
+        fi
+    done
+    
+    # Handle sites-available and sites-enabled directories
+    find /etc/apache2/sites-available/ -name "*.conf" -type f -exec sed -i 's/\x1b\[[0-9;]*[a-zA-Z]//g' {} \; 2>/dev/null || true
+    find /etc/apache2/sites-enabled/ -type f -exec sed -i 's/\x1b\[[0-9;]*[a-zA-Z]//g' {} \; 2>/dev/null || true
+    
+    # Remove any log message lines from config files
+    find /etc/apache2/ -name "*.conf" -type f -exec sed -i '/^\[[A-Z]*\]/d' {} \; 2>/dev/null || true
 }
 
 # Install web server (Apache or Nginx)
