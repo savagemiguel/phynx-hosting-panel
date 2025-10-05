@@ -25,7 +25,7 @@ PANEL_NAME="phynx"
 PANEL_DISPLAY_NAME="Phynx Hosting Panel"
 PANEL_VERSION="2.0"
 PANEL_DIR="/var/www/$PANEL_NAME"
-PMA_DIR="$PANEL_DIR/phynx"
+PMA_DIR="$PANEL_DIR/phynxadmin"
 LOG_FILE="/var/log/phynx-install.log"
 ENV_FILE="$PANEL_DIR/.env"
 
@@ -2049,6 +2049,22 @@ fix_apache_config_issues() {
     # Clean up ANSI color codes from configuration files
     clean_apache_config_ansi_codes
     
+    # Ensure web directories exist for DocumentRoot
+    ensure_web_directories
+    
+    # Check and fix DocumentRoot issues
+    local error_output
+    error_output=$(apache2ctl configtest 2>&1)
+    
+    if echo "$error_output" | grep -q "DocumentRoot.*does not exist"; then
+        warn "DocumentRoot directories missing - creating them..."
+        ensure_web_directories
+    fi
+    
+    if echo "$error_output" | grep -q "AH02297"; then
+        warn "Malformed log paths detected - this should be fixed by configuration updates"
+    fi
+    
     log "Apache configuration fixes applied"
 }
 
@@ -2592,6 +2608,73 @@ deploy_custom_pma() {
     fi
 }
 
+# Ensure web directories exist with proper permissions
+ensure_web_directories() {
+    log "Creating web directories and setting permissions..."
+    
+    # Ensure base web directory exists
+    mkdir -p /var/www/html
+    
+    # Create domain-specific directory structure
+    if [[ -n "$MAIN_DOMAIN" ]]; then
+        mkdir -p "/var/www/$MAIN_DOMAIN/public_html"
+        
+        # Create a basic index.html if it doesn't exist
+        if [[ ! -f "/var/www/$MAIN_DOMAIN/public_html/index.html" ]]; then
+            cat > "/var/www/$MAIN_DOMAIN/public_html/index.html" << EOF
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Welcome to $MAIN_DOMAIN</title>
+    <style>
+        body { font-family: Arial, sans-serif; text-align: center; margin: 50px; }
+        .container { max-width: 600px; margin: 0 auto; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Welcome to $MAIN_DOMAIN</h1>
+        <p>Your hosting panel is being configured.</p>
+        <p><a href="/panel">Access Admin Panel</a></p>
+    </div>
+</body>
+</html>
+EOF
+        fi
+        
+        # Set proper ownership and permissions
+        chown -R www-data:www-data "/var/www/$MAIN_DOMAIN"
+        find "/var/www/$MAIN_DOMAIN" -type d -exec chmod 755 {} \;
+        find "/var/www/$MAIN_DOMAIN" -type f -exec chmod 644 {} \;
+        
+        log "Created document root: /var/www/$MAIN_DOMAIN/public_html"
+    fi
+    
+    # Ensure default /var/www/html exists and has proper permissions
+    chown -R www-data:www-data /var/www/html
+    chmod 755 /var/www/html
+    
+    # Create a default index.html if it doesn't exist
+    if [[ ! -f "/var/www/html/index.html" ]]; then
+        cat > "/var/www/html/index.html" << EOF
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Apache2 Ubuntu Default Page</title>
+</head>
+<body>
+    <h1>It works!</h1>
+    <p>This is the default Apache2 Ubuntu page.</p>
+</body>
+</html>
+EOF
+        chown www-data:www-data /var/www/html/index.html
+        chmod 644 /var/www/html/index.html
+    fi
+    
+    ok "Web directories created successfully"
+}
+
 # Configure PHP for optimal performance
 configure_php() {
     log "Configuring PHP for production use..."
@@ -2818,6 +2901,8 @@ configure_web_server() {
     if [[ "$WEB_SERVER" == "nginx" ]]; then
         configure_nginx_vhost
     else
+        # Ensure web directories exist before configuring Apache
+        ensure_web_directories
         configure_apache_http_vhost
         # Fix Apache ServerName warning if not already fixed
         fix_apache_servername
@@ -2834,8 +2919,8 @@ configure_apache_http_vhost() {
     ServerName $MAIN_DOMAIN
     ServerAlias www.$MAIN_DOMAIN
     DocumentRoot /var/www/$MAIN_DOMAIN/public_html
-    ErrorLog \\${APACHE_LOG_DIR}/${MAIN_DOMAIN}_error.log
-    CustomLog \\${APACHE_LOG_DIR}/${MAIN_DOMAIN}_access.log combined
+    ErrorLog \${APACHE_LOG_DIR}/${MAIN_DOMAIN}_error.log
+    CustomLog \${APACHE_LOG_DIR}/${MAIN_DOMAIN}_access.log combined
 
     # Admin panel aliases
     Alias /panel "$PANEL_DIR"
@@ -2843,11 +2928,9 @@ configure_apache_http_vhost() {
 
     <Directory /var/www/$MAIN_DOMAIN/public_html>
         Options Indexes FollowSymLinks
-        AllowOverRide All
+        AllowOverride All
         IndexIgnore *
         Require all granted
-        Order Allow,Deny
-        Allow from all
 
         # PHP-FPM configuration
         <FilesMatch \\.php\$>
@@ -2857,11 +2940,9 @@ configure_apache_http_vhost() {
 
     <Directory "$PANEL_DIR">
         Options Indexes FollowSymLinks
-        AllowOverRide All
+        AllowOverride All
         IndexIgnore *
         Require all granted
-        Order Allow,Deny
-        Allow from all
 
         # PHP-FPM configuration
         <FilesMatch \\.php\$>
@@ -2871,11 +2952,9 @@ configure_apache_http_vhost() {
 
     <Directory "$PMA_DIR">
         Options Indexes FollowSymLinks
-        AllowOverRide All
+        AllowOverride All
         IndexIgnore *
         Require all granted
-        Order Allow,Deny
-        Allow from all
 
         <FilesMatch \\.php\$>
             SetHandler "proxy:unix:/run/php/php8.4-fpm.sock|fcgi://localhost/"
@@ -2892,10 +2971,6 @@ configure_apache_http_vhost() {
     <FilesMatch "^\.">
         Require all denied
     </FilesMatch>
-    
-    # Logging
-    ErrorLog \${APACHE_LOG_DIR}/${MAIN_DOMAIN}_error.log
-    CustomLog \${APACHE_LOG_DIR}/${MAIN_DOMAIN}_access.log combined
 </VirtualHost>
 
 # Admin panel subdomain - $PANEL_SUBDOMAIN (HTTP)
@@ -2903,16 +2978,14 @@ configure_apache_http_vhost() {
     ServerAdmin $ADMIN_EMAIL
     ServerName $PANEL_SUBDOMAIN
     DocumentRoot $PANEL_DIR
-    ErrorLog \\${APACHE_LOG_DIR}/${PANEL_SUBDOMAIN}_error.log
-    CustomLog \\${APACHE_LOG_DIR}/${PANEL_SUBDOMAIN}_access.log combined
+    ErrorLog \${APACHE_LOG_DIR}/${PANEL_SUBDOMAIN}_error.log
+    CustomLog \${APACHE_LOG_DIR}/${PANEL_SUBDOMAIN}_access.log combined
 
     <Directory "$PANEL_DIR">
         Options Indexes FollowSymLinks
-        AllowOverRide All
+        AllowOverride All
         IndexIgnore *
         Require all granted
-        Order Allow,Deny
-        Allow from all
 
         # PHP-FPM configuration
         <FilesMatch \\.php\$>
@@ -2930,10 +3003,6 @@ configure_apache_http_vhost() {
     <FilesMatch "^\.">
         Require all denied
     </FilesMatch>
-    
-    # Logging
-    ErrorLog \${APACHE_LOG_DIR}/${PANEL_SUBDOMAIN}_error.log
-    CustomLog \${APACHE_LOG_DIR}/${PANEL_SUBDOMAIN}_access.log combined
 </VirtualHost>
 
 # Database manager subdomain - $PHYNXADMIN_SUBDOMAIN (HTTP)
@@ -2941,16 +3010,14 @@ configure_apache_http_vhost() {
     ServerAdmin $ADMIN_EMAIL
     ServerName $PHYNXADMIN_SUBDOMAIN
     DocumentRoot $PMA_DIR
-    ErrorLog \\${APACHE_LOG_DIR}/${PHYNXADMIN_SUBDOMAIN}_error.log
-    CustomLog \\${APACHE_LOG_DIR}/${PHYNXADMIN_SUBDOMAIN}_access.log combined
+    ErrorLog \${APACHE_LOG_DIR}/${PHYNXADMIN_SUBDOMAIN}_error.log
+    CustomLog \${APACHE_LOG_DIR}/${PHYNXADMIN_SUBDOMAIN}_access.log combined
 
     <Directory "$PMA_DIR">
         Options Indexes FollowSymLinks
-        AllowOverRide All
+        AllowOverride All
         IndexIgnore *
         Require all granted
-        Order Allow,Deny
-        Allow from all
 
         <FilesMatch \\.php\$>
             SetHandler "proxy:unix:/run/php/php8.4-fpm.sock|fcgi://localhost/"
@@ -2967,10 +3034,6 @@ configure_apache_http_vhost() {
     <FilesMatch "^\.">
         Require all denied
     </FilesMatch>
-    
-    # Logging
-    ErrorLog \${APACHE_LOG_DIR}/${PHYNXADMIN_SUBDOMAIN}_error.log
-    CustomLog \${APACHE_LOG_DIR}/${PHYNXADMIN_SUBDOMAIN}_access.log combined
 </VirtualHost>
 EOF
 
@@ -3014,8 +3077,8 @@ configure_apache_ssl_vhost() {
     ServerName $MAIN_DOMAIN
     ServerAlias www.$MAIN_DOMAIN
     DocumentRoot /var/www/$MAIN_DOMAIN/public_html
-    ErrorLog \\${APACHE_LOG_DIR}/${MAIN_DOMAIN}_ssl_error.log
-    CustomLog \\${APACHE_LOG_DIR}/${MAIN_DOMAIN}_ssl_access.log combined
+    ErrorLog \${APACHE_LOG_DIR}/${MAIN_DOMAIN}_ssl_error.log
+    CustomLog \${APACHE_LOG_DIR}/${MAIN_DOMAIN}_ssl_access.log combined
 
     # Admin panel aliases
     Alias /panel "$PANEL_DIR"
@@ -3033,12 +3096,10 @@ configure_apache_ssl_vhost() {
     
     # Main website directory
     <Directory /var/www/$MAIN_DOMAIN/public_html>
-        Options Indexes +FollowSymLinks
-        AllowOverRide All
+        Options Indexes FollowSymLinks
+        AllowOverride All
         Require all granted
         IndexIgnore *
-        Order Allow,Deny
-        Allow from all
         
         <FilesMatch \\.php\$>
             SetHandler "proxy:unix:/run/php/php8.4-fpm.sock|fcgi://localhost/"
@@ -3047,12 +3108,10 @@ configure_apache_ssl_vhost() {
     
     # Admin panel directory
     <Directory "$PANEL_DIR">
-        Options Indexes +FollowSymLinks
-        AllowOverRide All
+        Options Indexes FollowSymLinks
+        AllowOverride All
         Require all granted
         IndexIgnore *
-        Order Allow,Deny
-        Allow from all
         
         <FilesMatch \\.php\$>
             SetHandler "proxy:unix:/run/php/php8.4-fpm.sock|fcgi://localhost/"
@@ -3061,12 +3120,10 @@ configure_apache_ssl_vhost() {
     
     # PhynxAdmin directory
     <Directory "$PMA_DIR">
-        Options Indexes +FollowSymLinks
-        AllowOverRide All
+        Options Indexes FollowSymLinks
+        AllowOverride All
         Require all granted
         IndexIgnore *
-        Order Allow,Deny
-        Allow from all
         
         <FilesMatch \\.php\$>
             SetHandler "proxy:unix:/run/php/php8.4-fpm.sock|fcgi://localhost/"
@@ -3083,16 +3140,14 @@ configure_apache_ssl_vhost() {
     <FilesMatch "^\.">
         Require all denied
     </FilesMatch>
-    
-    # Logging
-    ErrorLog \${APACHE_LOG_DIR}/${MAIN_DOMAIN}_ssl_error.log
-    CustomLog \${APACHE_LOG_DIR}/${MAIN_DOMAIN}_ssl_access.log combined
 </VirtualHost>
 
 # Admin panel subdomain HTTPS - panel.phynx.one:443
 <VirtualHost *:443>
     ServerName $PANEL_SUBDOMAIN
     DocumentRoot $PANEL_DIR
+    ErrorLog \${APACHE_LOG_DIR}/${PANEL_SUBDOMAIN}_ssl_error.log
+    CustomLog \${APACHE_LOG_DIR}/${PANEL_SUBDOMAIN}_ssl_access.log combined
     
     # SSL Configuration
     SSLEngine on
@@ -3108,12 +3163,10 @@ configure_apache_ssl_vhost() {
     SSLHonorCipherOrder on
         
     <Directory "$PANEL_DIR">
-        Options Indexes +FollowSymLinks
-        AllowOverRide All
+        Options Indexes FollowSymLinks
+        AllowOverride All
         Require all granted
         IndexIgnore *
-        Order Allow,Deny
-        Allow from all
         
         <FilesMatch \\.php\$>
             SetHandler "proxy:unix:/run/php/php8.4-fpm.sock|fcgi://localhost/"
@@ -3130,16 +3183,14 @@ configure_apache_ssl_vhost() {
     <FilesMatch "^\.">
         Require all denied
     </FilesMatch>
-    
-    # Logging
-    ErrorLog \${APACHE_LOG_DIR}/${PANEL_SUBDOMAIN}_ssl_error.log
-    CustomLog \${APACHE_LOG_DIR}/${PANEL_SUBDOMAIN}_ssl_access.log combined
 </VirtualHost>
 
 # Secure admin panel - phynx.one:2083
 <VirtualHost *:$SECURE_PORT>
     ServerName www.$MAIN_DOMAIN
     DocumentRoot $PANEL_DIR
+    ErrorLog \${APACHE_LOG_DIR}/${MAIN_DOMAIN}_secure_error.log
+    CustomLog \${APACHE_LOG_DIR}/${MAIN_DOMAIN}_secure_access.log combined
     
     # SSL Configuration
     SSLEngine on
@@ -3155,12 +3206,10 @@ configure_apache_ssl_vhost() {
     SSLHonorCipherOrder on
     
     <Directory "$PANEL_DIR">
-        Options Indexes +FollowSymLinks
-        AllowOverRide All
+        Options Indexes FollowSymLinks
+        AllowOverride All
         Require all granted
         IndexIgnore *
-        Order Allow,Deny
-        Allow from all
         
         <FilesMatch \\.php\$>
             SetHandler "proxy:unix:/run/php/php8.4-fpm.sock|fcgi://localhost/"
@@ -3177,10 +3226,6 @@ configure_apache_ssl_vhost() {
     <FilesMatch "^\.">
         Require all denied
     </FilesMatch>
-    
-    # Logging
-    ErrorLog \${APACHE_LOG_DIR}/${MAIN_DOMAIN}_secure_error.log
-    CustomLog \${APACHE_LOG_DIR}/${MAIN_DOMAIN}_secure_access.log combined
 </VirtualHost>
 </IfModule>
 EOF
@@ -4465,6 +4510,27 @@ install_phynx() {
     
     # Configure HTTP virtual hosts first
     configure_web_server
+    
+    # Test Apache configuration after setup
+    log "Testing Apache configuration after virtual host setup..."
+    if apache2ctl configtest 2>/dev/null; then
+        ok "Apache configuration test passed"
+    else
+        error_output=$(apache2ctl configtest 2>&1)
+        warn "Apache configuration test failed - attempting fixes..."
+        log "Error details: $error_output"
+        
+        # Apply fixes for common configuration issues
+        fix_apache_config_issues
+        
+        # Test again after fixes
+        if apache2ctl configtest 2>/dev/null; then
+            ok "Apache configuration test passed after fixes"
+        else
+            error "Apache configuration still has issues after fixes"
+            error "Error details: $(apache2ctl configtest 2>&1)"
+        fi
+    fi
     
     # Create SSL certificates
     if create_ssl_certificate "$MAIN_DOMAIN"; then
