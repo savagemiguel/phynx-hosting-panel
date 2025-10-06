@@ -604,13 +604,14 @@ execute_with_retry() {
     done
 }
 
-# Check if a package is already installed
+# Check if a package is already installed (robust version)
 check_package_installed() {
     local package="$1"
-    dpkg -l "$package" 2>/dev/null | grep -q "^ii"
+    dpkg -l "$package" 2>/dev/null | grep -q "^ii" || return 1
+    return 0
 }
 
-# Smart package installation with progress feedback
+# Smart package installation with progress feedback (robust version)
 install_packages_smart() {
     local packages=("$@")
     local total=${#packages[@]}
@@ -618,24 +619,37 @@ install_packages_smart() {
     local skipped=0
     
     for package in "${packages[@]}"; do
-        if check_package_installed "$package"; then
+        # Check if package is already installed (don't exit on error)
+        if check_package_installed "$package" 2>/dev/null; then
             echo "  ✓ $package (already installed)"
             ((skipped++))
         else
             echo "  → Installing $package..."
+            # Install package with error handling
             if DEBIAN_FRONTEND=noninteractive apt-get install -y "$package" >/dev/null 2>&1; then
                 echo "  ✓ $package (installed successfully)"
-                track_package "$package"
-                add_rollback "apt-get remove --purge -y $package"
+                # Track package safely
+                if type track_package >/dev/null 2>&1; then
+                    track_package "$package" || true
+                fi
+                if type add_rollback >/dev/null 2>&1; then
+                    add_rollback "apt-get remove --purge -y $package" || true
+                fi
                 ((installed++))
             else
                 echo "  ✗ $package (installation failed)"
-                warn "Failed to install package: $package"
+                if type warn >/dev/null 2>&1; then
+                    warn "Failed to install package: $package" || true
+                else
+                    echo "WARNING: Failed to install package: $package"
+                fi
+                # Continue with other packages instead of failing
             fi
         fi
     done
     
     echo "Installation summary: $installed installed, $skipped already present"
+    return 0  # Always return success to prevent script exit
 }
 
 # Safe package installation with tracking (enhanced version)
