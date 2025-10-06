@@ -24,7 +24,7 @@ NC='\033[0m' # No Color
 PANEL_NAME="phynx"
 PANEL_DISPLAY_NAME="Phynx Hosting Panel"
 PANEL_VERSION="2.0"
-PANEL_DIR="/var/www/$PANEL_NAME"
+PANEL_DIR="/var/www/phynx/public_html"
 PMA_DIR="$PANEL_DIR/phynxadmin"
 LOG_FILE="/var/log/phynx-install.log"
 ENV_FILE="$PANEL_DIR/.env"
@@ -41,7 +41,8 @@ NGINX_SITE="/etc/nginx/sites-available/$PANEL_NAME"
 # Custom Port Configuration  
 HTTP_PORT="80"        # Standard HTTP port for hosting panel
 HTTPS_PORT="443"      # Standard HTTPS port for SSL
-SECURE_PORT="2083"    # Custom secure port for admin panel
+SECURE_PORT="2083"    # Custom HTTP port for admin panel
+SECURE_SSL_PORT="2087" # Custom HTTPS port for admin panel
 
 # Server IP Configuration
 SERVER_IP="216.45.53.244"  # Fixed server IP address
@@ -772,7 +773,7 @@ validate_system() {
     fi
     
     # Check if ports are available
-    for port in 80 443 22 $SECURE_PORT; do
+    for port in 80 443 22 $SECURE_PORT $SECURE_SSL_PORT; do
         if netstat -tuln 2>/dev/null | grep -q ":$port "; then
             warn "Port $port is already in use"
         else
@@ -1991,7 +1992,7 @@ show_installation_summary() {
     echo -e "   • Database Manager: ${GREEN}$PHYNXADMIN_SUBDOMAIN${NC}"
     echo -e "   • Server IP: ${GREEN}$SERVER_IP${NC}"
     echo -e "   • Web Server: ${GREEN}$WEB_SERVER${NC}"
-    echo -e "   • Ports: HTTP(80), HTTPS(443), Secure($SECURE_PORT)"
+    echo -e "   • Ports: HTTP(80), HTTPS(443), Admin HTTP($SECURE_PORT), Admin HTTPS($SECURE_SSL_PORT)"
     echo ""
     
     # Optional Components
@@ -2370,19 +2371,25 @@ configure_apache_ports() {
         echo "<IfModule ssl_module>"
         echo "    Listen $HTTPS_PORT ssl"
         if [[ "$SECURE_PORT" != "$HTTPS_PORT" ]]; then
-            echo "    Listen $SECURE_PORT ssl"
+            echo "    Listen $SECURE_PORT"
+        fi
+        if [[ "$SECURE_SSL_PORT" != "$HTTPS_PORT" ]]; then
+            echo "    Listen $SECURE_SSL_PORT ssl"
         fi
         echo "</IfModule>"
         echo ""
         echo "<IfModule mod_gnutls.c>"
         echo "    Listen $HTTPS_PORT ssl"
         if [[ "$SECURE_PORT" != "$HTTPS_PORT" ]]; then
-            echo "    Listen $SECURE_PORT ssl"  
+            echo "    Listen $SECURE_PORT"
+        fi
+        if [[ "$SECURE_SSL_PORT" != "$HTTPS_PORT" ]]; then
+            echo "    Listen $SECURE_SSL_PORT ssl"
         fi
         echo "</IfModule>"
     } > "$ports_conf"
     
-    log "Apache ports configured: 80 (HTTP), $HTTPS_PORT (HTTPS), $SECURE_PORT (Secure)"
+    log "Apache ports configured: 80 (HTTP), $HTTPS_PORT (HTTPS), $SECURE_PORT (Admin HTTP), $SECURE_SSL_PORT (Admin HTTPS)"
 }
 
 # Fix common Apache configuration issues
@@ -2580,7 +2587,7 @@ debug_apache_config() {
     systemctl status apache2 --no-pager -l
     
     echo -e "\n${YELLOW}6. Port usage:${NC}"
-    ss -tlnp | grep -E ':(80|443|2083)'
+    ss -tlnp | grep -E ':(80|443|2083|2087)'
     
     echo -e "\n${YELLOW}7. Apache configuration files:${NC}"
     ls -la /etc/apache2/sites-enabled/
@@ -3592,12 +3599,46 @@ configure_apache_ssl_vhost() {
     </FilesMatch>
 </VirtualHost>
 
-# Secure admin panel - phynx.one:2083
+# Admin panel HTTP - Port 2083 (for phynx.one, www.phynx.one, and IP access)
 <VirtualHost *:$SECURE_PORT>
-    ServerName www.$MAIN_DOMAIN
+    ServerName $MAIN_DOMAIN
+    ServerAlias www.$MAIN_DOMAIN
+    ServerAlias $SERVER_IP
     DocumentRoot $PANEL_DIR
-    ErrorLog \${APACHE_LOG_DIR}/${MAIN_DOMAIN}_secure_error.log
-    CustomLog \${APACHE_LOG_DIR}/${MAIN_DOMAIN}_secure_access.log combined
+    ErrorLog \${APACHE_LOG_DIR}/admin_panel_http_error.log
+    CustomLog \${APACHE_LOG_DIR}/admin_panel_http_access.log combined
+    
+    <Directory "$PANEL_DIR">
+        Options Indexes FollowSymLinks
+        AllowOverride All
+        Require all granted
+        IndexIgnore *
+        
+        <FilesMatch \\.php\$>
+            SetHandler "proxy:unix:/run/php/php8.4-fpm.sock|fcgi://localhost/"
+        </FilesMatch>
+    </Directory>
+    
+    # Security restrictions
+    <Files "config.php">
+        Require all denied
+    </Files>
+    <Files ".env">
+        Require all denied
+    </Files>
+    <FilesMatch "^\.">
+        Require all denied
+    </FilesMatch>
+</VirtualHost>
+
+# Admin panel HTTPS - Port 2087 (for phynx.one, www.phynx.one, and IP access)
+<VirtualHost *:$SECURE_SSL_PORT>
+    ServerName $MAIN_DOMAIN
+    ServerAlias www.$MAIN_DOMAIN
+    ServerAlias $SERVER_IP
+    DocumentRoot $PANEL_DIR
+    ErrorLog \${APACHE_LOG_DIR}/admin_panel_ssl_error.log
+    CustomLog \${APACHE_LOG_DIR}/admin_panel_ssl_access.log combined
     
     # SSL Configuration
     SSLEngine on
@@ -4705,9 +4746,14 @@ display_installation_summary() {
     echo -e "• ${GREEN}HTTPS${NC}: https://$MAIN_DOMAIN (after SSL setup)"
     echo ""
     echo -e "${CYAN}Admin Panel Access:${NC}"
-    echo -e "• ${GREEN}Subdomain${NC}: http://$PANEL_SUBDOMAIN"
-    echo -e "• ${GREEN}Directory${NC}: http://$MAIN_DOMAIN/panel"
-    echo -e "• ${GREEN}Secure Port${NC}: https://$MAIN_DOMAIN:$SECURE_PORT (after SSL)"
+    echo -e "• ${GREEN}HTTP (Port 2083)${NC}:"
+    echo -e "  - http://$MAIN_DOMAIN:$SECURE_PORT"
+    echo -e "  - http://www.$MAIN_DOMAIN:$SECURE_PORT"
+    echo -e "  - http://$SERVER_IP:$SECURE_PORT"
+    echo -e "• ${GREEN}HTTPS (Port 2087)${NC}:"
+    echo -e "  - https://$MAIN_DOMAIN:$SECURE_SSL_PORT"
+    echo -e "  - https://www.$MAIN_DOMAIN:$SECURE_SSL_PORT"
+    echo -e "  - https://$SERVER_IP:$SECURE_SSL_PORT"
     echo ""
     echo -e "${CYAN}Database Manager Access:${NC}"
     if [[ -d "$PMA_DIR" ]]; then
