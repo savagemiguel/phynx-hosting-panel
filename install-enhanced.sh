@@ -3182,8 +3182,33 @@ create_ssl_certificate() {
     systemctl reload apache2 >/dev/null 2>&1 || true
     
     # Use webroot method which is more reliable than apache plugin
+    # Create webroot directory in the main domain's document root
+    local webroot_path="/var/www/$domain/public_html"
+    mkdir -p "$webroot_path/.well-known/acme-challenge"
+    chown -R www-data:www-data "$webroot_path/.well-known"
+    chmod -R 755 "$webroot_path/.well-known"
+    
+    # Also create in /var/www/html as fallback
     mkdir -p "/var/www/html/.well-known/acme-challenge"
     chown -R www-data:www-data "/var/www/html/.well-known"
+    chmod -R 755 "/var/www/html/.well-known"
+    
+    # Add specific Apache configuration for Let's Encrypt challenges
+    cat > /etc/apache2/conf-available/letsencrypt.conf << 'LETSENCRYPT_EOF'
+# Let's Encrypt challenge configuration
+Alias /.well-known/acme-challenge /var/www/html/.well-known/acme-challenge
+<Directory "/var/www/html/.well-known/acme-challenge">
+    Options None
+    AllowOverride None
+    ForceType text/plain
+    RedirectMatch 404 "^(?!/\.well-known/acme-challenge/[\w-]{43}$)"
+    Require all granted
+</Directory>
+LETSENCRYPT_EOF
+    
+    # Enable the Let's Encrypt configuration
+    a2enconf letsencrypt >/dev/null 2>&1
+    systemctl reload apache2 >/dev/null 2>&1
     
     if certbot certonly --webroot --webroot-path="/var/www/html" --non-interactive --agree-tos --email "$ADMIN_EMAIL" -d "$domain" -d "www.$domain" 2>/dev/null; then
         echo -e "${GREEN}✓ Successfully obtained Let's Encrypt certificate${NC}"
@@ -4733,11 +4758,11 @@ main() {
     # Initialize installation tracking
     initialize_installation_stats
     
+    # Show configuration summary and get confirmation
+    show_installation_summary
+    
     # Start enhanced installation process
     install_phynx
-    
-    # Show completion summary
-    show_installation_summary
     
     log "Installation process completed successfully!"
 }
@@ -4839,11 +4864,6 @@ install_phynx() {
     update_progress 10 "Validating system requirements"
     validate_system
     validate_dependencies
-    
-    # Show installation summary in silent mode check
-    if [[ "$SILENT_MODE" != "yes" ]]; then
-        show_installation_summary
-    fi
     
     update_progress 15 "Preparing installation environment"
     add_operation "installation_prep"
