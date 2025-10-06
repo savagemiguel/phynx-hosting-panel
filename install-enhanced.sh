@@ -67,6 +67,171 @@ ADMIN_EMAIL="admin@$MAIN_DOMAIN"
 SILENT_MODE="no"
 
 # ===============================
+# Progress Bar System (Integrated from progressbar.sh)
+# ===============================
+
+# Progress bar constants
+CODE_SAVE_CURSOR="\033[s"
+CODE_RESTORE_CURSOR="\033[u"
+CODE_CURSOR_IN_SCROLL_AREA="\033[1A"
+COLOR_FG="\e[30m"
+COLOR_BG="\e[42m"
+COLOR_BG_BLOCKED="\e[43m"
+RESTORE_FG="\e[39m"
+RESTORE_BG="\e[49m"
+
+# Progress bar variables
+PROGRESS_BLOCKED="false"
+CURRENT_NR_LINES=0
+PROGRESS_TITLE="Phynx Installation"
+PROGRESS_TOTAL=100
+PROGRESS_START=0
+INSTALLATION_PROGRESS=0
+TIMER_PID=""
+
+# Setup progress bar area
+setup_progress_area() {
+    local title="${1:-Phynx Installation}"
+    PROGRESS_TITLE="$title"
+    PROGRESS_TOTAL=100
+    
+    lines=$(tput lines)
+    CURRENT_NR_LINES=$lines
+    lines=$((lines-2))  # Reserve 2 lines for progress and timer
+    
+    echo -en "\n\n"
+    echo -en "$CODE_SAVE_CURSOR"
+    echo -en "\033[0;${lines}r"
+    echo -en "$CODE_RESTORE_CURSOR"
+    echo -en "$CODE_CURSOR_IN_SCROLL_AREA"
+    
+    PROGRESS_START=$(date +%s)
+    start_timer_display
+    draw_progress_bar 0
+}
+
+# Destroy progress bar area
+destroy_progress_area() {
+    stop_timer_display
+    lines=$(tput lines)
+    echo -en "$CODE_SAVE_CURSOR"
+    echo -en "\033[0;${lines}r"
+    echo -en "$CODE_RESTORE_CURSOR"
+    echo -en "$CODE_CURSOR_IN_SCROLL_AREA"
+    clear_progress_bar
+    echo -en "\n\n"
+    PROGRESS_TITLE=""
+}
+
+# Draw progress bar
+draw_progress_bar() {
+    local percentage=$1
+    local status_text="${2:-}"
+    
+    lines=$(tput lines)
+    
+    # Check if window was resized
+    if [ "$lines" -ne "$CURRENT_NR_LINES" ]; then
+        setup_progress_area "$PROGRESS_TITLE"
+    fi
+    
+    echo -en "$CODE_SAVE_CURSOR"
+    echo -en "\033[${lines};0f"
+    tput el
+    
+    # Draw progress bar
+    print_progress_bar $percentage "$status_text"
+    
+    echo -en "$CODE_RESTORE_CURSOR"
+}
+
+# Print progress bar content
+print_progress_bar() {
+    local percentage=$1
+    local status_text="${2:-}"
+    local cols=$(tput cols)
+    local bar_size=$((cols-25))  # Reserve space for percentage and text
+    
+    # Calculate bar components
+    local complete_size=$(((bar_size*percentage)/100))
+    local remainder_size=$((bar_size-complete_size))
+    
+    # Build progress bar
+    local progress_bar="["
+    progress_bar+="${COLOR_FG}${COLOR_BG}"
+    for ((i=0; i<complete_size; i++)); do
+        progress_bar+="█"
+    done
+    progress_bar+="${RESTORE_FG}${RESTORE_BG}"
+    for ((i=0; i<remainder_size; i++)); do
+        progress_bar+="░"
+    done
+    progress_bar+="]"
+    
+    # Print progress line
+    printf "\r %s %3d%% %s" "$progress_bar" "$percentage" "$PROGRESS_TITLE"
+    
+    # Print status line (next line)
+    if [[ -n "$status_text" ]]; then
+        echo -en "\n"
+        printf "\r Status: %s" "$status_text"
+        tput el
+    fi
+}
+
+# Clear progress bar
+clear_progress_bar() {
+    lines=$(tput lines)
+    echo -en "$CODE_SAVE_CURSOR"
+    echo -en "\033[${lines};0f"
+    tput el
+    echo -en "\033[$((lines-1));0f"
+    tput el
+    echo -en "$CODE_RESTORE_CURSOR"
+}
+
+# Start real-time timer display
+start_timer_display() {
+    stop_timer_display  # Stop any existing timer
+    {
+        while true; do
+            if [[ -n "$PROGRESS_START" ]]; then
+                local elapsed=$(($(date +%s) - PROGRESS_START))
+                local minutes=$((elapsed / 60))
+                local seconds=$((elapsed % 60))
+                
+                # Update timer line (second to last line)
+                lines=$(tput lines)
+                echo -en "$CODE_SAVE_CURSOR"
+                echo -en "\033[$((lines-1));0f"
+                printf "\r Elapsed: %02d:%02d" "$minutes" "$seconds"
+                tput el
+                echo -en "$CODE_RESTORE_CURSOR"
+            fi
+            sleep 1
+        done
+    } &
+    TIMER_PID=$!
+}
+
+# Stop timer display
+stop_timer_display() {
+    if [[ -n "$TIMER_PID" ]]; then
+        kill "$TIMER_PID" 2>/dev/null
+        wait "$TIMER_PID" 2>/dev/null
+        TIMER_PID=""
+    fi
+}
+
+# Update installation progress
+update_progress() {
+    local percentage=$1
+    local status="${2:-}"
+    INSTALLATION_PROGRESS=$percentage
+    draw_progress_bar "$percentage" "$status"
+}
+
+# ===============================
 # Helper Functions
 # ===============================
 
@@ -458,20 +623,10 @@ execute_with_retry() {
     done
 }
 
-# Safe package installation with tracking
+# Safe package installation with tracking (enhanced version)
 install_packages() {
     local packages=("$@")
-    
-    for package in "${packages[@]}"; do
-        update_step "Installing package: $package"
-        
-        if execute_with_retry "apt-get install -y $package" "Install $package" 3 5; then
-            track_package "$package"
-            add_rollback "apt-get remove --purge -y $package"
-        else
-            die "Failed to install package: $package"
-        fi
-    done
+    install_packages_smart "${packages[@]}"
 }
 
 # Safe service management
@@ -604,7 +759,7 @@ validate_dependencies() {
     
     # Check if packages are available
     local packages_to_check=(
-        "apache2" "nginx" "mysql-server" "php8.1" "php8.2" "php8.3" "php8.4"
+        "apache2" "nginx" "mysql-server" "php8.3" "php8.4"
         "ufw" "fail2ban" "certbot" "bind9" "git" "curl" "wget" "unzip"
     )
     
@@ -1240,6 +1395,7 @@ panel   IN  A   ${SERVER_IP}
 phynxadmin IN A ${SERVER_IP}
 mail    IN  A   ${SERVER_IP}
 @       IN  MX  10 mail.${zone_name}.
+WWW     IN  CNAME ${zone_name}.
 EOF
         
         # Convert to standard format and move to proper location
@@ -1272,7 +1428,6 @@ EOF
 
 ; A Records
 @       IN  A   ${SERVER_IP}
-www     IN  A   ${SERVER_IP}
 ns1     IN  A   ${SERVER_IP}  
 ns2     IN  A   ${SERVER_IP}
 
@@ -1281,13 +1436,15 @@ panel       IN  A   ${SERVER_IP}
 phynxadmin  IN  A   ${SERVER_IP}
 mail        IN  A   ${SERVER_IP}
 ftp         IN  A   ${SERVER_IP}
+www         IN  A   ${SERVER_IP}
 
 ; Mail Exchange
 @   IN  MX  10  mail.${zone_name}.
 
 ; CNAME Records (aliases)
-webmail     IN  CNAME   www.${zone_name}.
+webmail     IN  CNAME   mail.${zone_name}.
 cpanel      IN  CNAME   panel.${zone_name}.
+www         IN  CNAME   ${zone_name}.
 
 ; TXT Records
 @   IN  TXT "v=spf1 a mx ip4:${SERVER_IP} ~all"
@@ -4502,14 +4659,14 @@ display_installation_summary() {
 # ===============================
 
 main() {
+    # Parse command line arguments first (for --help, etc.)
+    parse_arguments "$@"
+    
     # Initialize advanced logging
     initialize_logging
     
     # Show enhanced banner
     print_banner
-    
-    # Parse command line arguments
-    parse_arguments "$@"
     
     # Interactive configuration menu (if not in silent mode)
     if [[ "$SILENT_MODE" != "yes" ]]; then
@@ -4607,88 +4764,84 @@ estimate_installation_time() {
 }
 
 # Enhanced installation process with all advanced features
+# Enhanced installation with modern progress system
 install_phynx() {
+    # Initialize installation tracking
     INSTALLATION_STATS[start_time]=$(date +%s)
     
-    # Initialize progress tracking
-    show_progress 1 14 "Initializing installation" "Setting up installation environment..."
+    # Setup progress display area and start timer
+    setup_progress_area
+    start_timer_display
+    
+    # Step 1: System Preparation (0-10%)
+    update_progress 5 "Initializing installation environment"
     
     # System backup if enabled
     if [[ "$ENABLE_BACKUP" == "yes" ]]; then
+        update_progress 8 "Creating system backup"
         create_system_backup
         track_operation "system_backup"
     fi
     
-    # System validation
-    show_step_header 1 "System Validation"
-    show_progress 2 14 "Validating system requirements" "Running system compatibility checks..."
+    # Step 2: System Validation (10-15%)
+    update_progress 10 "Validating system requirements"
     validate_system
     validate_dependencies
     
-    # Show installation summary
+    # Show installation summary in silent mode check
     if [[ "$SILENT_MODE" != "yes" ]]; then
         show_installation_summary
     fi
     
-    show_progress 3 14 "Preparing installation environment" "Setting up directories and permissions..."
+    update_progress 15 "Preparing installation environment"
     add_operation "installation_prep"
     
-    # Core system setup
-    show_step_header 2 "Core System Setup"
-    show_progress 4 14 "Updating system and installing core packages" "Installing dependencies and updates..."
+    # Step 3: Core System Setup (15-30%)
+    update_progress 20 "Updating system packages"
     update_system
+    
+    update_progress 25 "Installing core system packages"
     install_core_packages
     track_operation "core_setup"
     
-    # Web server and database setup
-    show_step_header 3 "Web Server and Database Setup"  
-    show_progress 5 14 "Installing web server and database" "Setting up Apache, MySQL, PHP and related services..."
+    # Step 4: Web Server & Database (30-50%)
+    update_progress 35 "Installing MySQL database server"
     install_mysql_server
+    
+    update_progress 40 "Installing web server components"
     install_web_server
+    
+    update_progress 45 "Securing MySQL installation"
     secure_mysql_installation
     track_operation "server_setup"
     
-    # SSL and web server configuration
-    show_step_header 4 "SSL and Web Server Configuration"
-    show_progress 6 14 "Configuring SSL certificates and virtual hosts" "Setting up SSL and domain configurations..."
-    
-    # Configure HTTP virtual hosts first
+    # Step 5: Web Server Configuration (50-60%)
+    update_progress 50 "Configuring web server virtual hosts"
     configure_web_server
     
-    # Test Apache configuration after setup
-    log "Testing Apache configuration after virtual host setup..."
-    if apache2ctl configtest 2>/dev/null; then
-        ok "Apache configuration test passed"
-    else
-        error_output=$(apache2ctl configtest 2>&1)
-        warn "Apache configuration test failed - attempting fixes..."
-        log "Error details: $error_output"
-        
-        # Apply fixes for common configuration issues
+    # Test and fix Apache configuration
+    update_progress 52 "Testing Apache configuration"
+    if ! apache2ctl configtest 2>/dev/null; then
+        update_progress 54 "Fixing Apache configuration issues"
         fix_apache_config_issues
         
-        # Test again after fixes
-        if apache2ctl configtest 2>/dev/null; then
-            ok "Apache configuration test passed after fixes"
-        else
-            error "Apache configuration still has issues after fixes"
-            error "Error details: $(apache2ctl configtest 2>&1)"
+        if ! apache2ctl configtest 2>/dev/null; then
+            warn "Apache configuration still has issues - review logs after installation"
         fi
     fi
     
-    # Create SSL certificates
+    # Step 6: SSL Configuration (60-65%)
+    update_progress 60 "Creating SSL certificates"
     if create_ssl_certificate "$MAIN_DOMAIN"; then
-        # Configure SSL virtual hosts with proper certificates
         if [[ "$WEB_SERVER" == "apache" ]]; then
+            update_progress 62 "Configuring SSL virtual hosts"
             if ! configure_apache_ssl_vhost "$MAIN_DOMAIN"; then
-                warn "SSL virtual host configuration failed. Continuing with HTTP-only setup."
-                # Ensure Apache can still start without SSL
+                warn "SSL virtual host configuration failed - continuing with HTTP"
                 systemctl reload apache2 || systemctl restart apache2
             fi
         fi
     else
-        warn "SSL certificate creation failed. Continuing with HTTP-only setup."
-        # Ensure no SSL sites are enabled that might cause startup issues
+        warn "SSL certificate creation failed - continuing with HTTP only"
         if [[ "$WEB_SERVER" == "apache" ]]; then
             a2dissite phynx-ssl.conf >/dev/null 2>&1 || true
             systemctl reload apache2 || systemctl restart apache2
@@ -4696,71 +4849,69 @@ install_phynx() {
     fi
     track_operation "web_config"
     
-    # Panel installation
-    show_step_header 5 "Panel Installation"
-    show_progress 7 14 "Installing Phynx panel files and configuration" "Copying panel files and configuring database..."
+    # Step 7: Panel Installation (65-75%)
+    update_progress 65 "Installing Phynx panel files"
     install_panel_files
+    
+    update_progress 68 "Creating environment configuration"
     create_environment_config
+    
+    update_progress 70 "Configuring PHP settings"
     configure_php
     track_operation "panel_install"
     
-    # Optional components
-    local component_progress=65
+    # Step 8: Optional Components (75-85%)
+    local current_progress=75
     
     if [[ "$INSTALL_PMA" == "yes" ]]; then
-        show_step_header 6 "Installing Database Manager"
-        show_progress 7 14 "Installing custom PhynxAdmin" "Deploying database manager interface..."
+        update_progress $current_progress "Installing database manager (PhynxAdmin)"
         deploy_custom_pma
         track_operation "phynxadmin_install"
-        ((component_progress += 5))
+        ((current_progress += 2))
     fi
     
     if [[ "$INSTALL_BIND" == "yes" ]]; then
-        show_step_header 7 "Installing DNS Server"
-        show_progress 7 14 "Installing BIND9 DNS server" "Setting up DNS service and configuration..."
+        update_progress $current_progress "Installing BIND9 DNS server"
         install_bind9
         track_operation "bind9_install"
-        ((component_progress += 5))
+        ((current_progress += 3))
     fi
     
-    # DNS Zone Setup
     if [[ "$SETUP_DNS_ZONES" == "yes" ]]; then
-        show_step_header 8 "DNS Zone Configuration"
-        show_progress 8 14 "Creating DNS zones and records" "Configuring BIND9 and creating zone files..."
+        update_progress $current_progress "Setting up DNS zones and records"
         setup_dns_zones
         create_dns_management_tools
         track_operation "dns_setup"
-        ((component_progress += 5))
+        ((current_progress += 3))
     fi
     
-    # Security setup
-    show_step_header $(if [[ "$SETUP_DNS_ZONES" == "yes" ]]; then echo "9"; else echo "8"; fi) "Security Configuration"
-    show_progress 9 14 "Configuring firewall and security" "Setting up security configurations..."
+    # Step 9: Security Configuration (85-90%)
+    update_progress 85 "Configuring firewall and security"
     configure_firewall
     configure_fail2ban
     
     if [[ "$INSTALL_CSF" == "yes" ]]; then
-        show_progress 10 14 "Installing CSF firewall" "Configuring advanced firewall protection..."
+        update_progress 87 "Installing CSF advanced firewall"
         install_csf
         track_operation "csf_install"
     fi
-    
     track_operation "security_setup"
     
-    # Final configuration
-    show_step_header $(if [[ "$SETUP_DNS_ZONES" == "yes" ]]; then echo "10"; else echo "9"; fi) "Final Configuration"
-    show_progress 11 14 "Setting up cron jobs and importing schema" "Configuring database schema and scheduled tasks..."
+    # Step 10: Final Configuration (90-95%)
+    update_progress 90 "Setting up scheduled tasks and database schema"
     setup_cron_jobs
     import_database_schema
     track_operation "final_config"
     
-    # System optimization and health checks
-    show_step_header $(if [[ "$SETUP_DNS_ZONES" == "yes" ]]; then echo "11"; else echo "10"; fi) "System Optimization"
-    show_progress 12 14 "Optimizing system and performing health checks" "Running final optimizations and validations..."
+    # Step 11: System Optimization (95-98%)
+    update_progress 95 "Optimizing system performance"
     optimize_system
+    
+    update_progress 97 "Performing final health checks"
     perform_health_check
     
-    show_progress 13 14 "Installation completed successfully" "All components installed and configured!"
+    # Step 12: Completion (98-100%)
+    update_progress 99 "Finalizing installation"
     
     # Calculate final statistics
     INSTALLATION_STATS[end_time]=$(date +%s)
@@ -4771,7 +4922,13 @@ install_phynx() {
         generate_installation_report
     fi
     
-    # DNS propagation monitoring and instructions
+    # Complete installation
+    update_progress 100 "Installation completed successfully!"
+    
+    # Stop timer and show completion
+    stop_timer_display
+    
+    # DNS-specific completion steps
     if [[ "$SETUP_DNS_ZONES" == "yes" ]]; then
         show_dns_completion_info
         
@@ -4783,7 +4940,7 @@ install_phynx() {
         fi
     fi
     
-    # Show completion
+    # Show final celebration
     show_completion_celebration
 }
 
