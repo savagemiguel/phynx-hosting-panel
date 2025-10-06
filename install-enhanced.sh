@@ -604,6 +604,40 @@ execute_with_retry() {
     done
 }
 
+# Check if a package is already installed
+check_package_installed() {
+    local package="$1"
+    dpkg -l "$package" 2>/dev/null | grep -q "^ii"
+}
+
+# Smart package installation with progress feedback
+install_packages_smart() {
+    local packages=("$@")
+    local total=${#packages[@]}
+    local installed=0
+    local skipped=0
+    
+    for package in "${packages[@]}"; do
+        if check_package_installed "$package"; then
+            echo "  ✓ $package (already installed)"
+            ((skipped++))
+        else
+            echo "  → Installing $package..."
+            if DEBIAN_FRONTEND=noninteractive apt-get install -y "$package" >/dev/null 2>&1; then
+                echo "  ✓ $package (installed successfully)"
+                track_package "$package"
+                add_rollback "apt-get remove --purge -y $package"
+                ((installed++))
+            else
+                echo "  ✗ $package (installation failed)"
+                warn "Failed to install package: $package"
+            fi
+        fi
+    done
+    
+    echo "Installation summary: $installed installed, $skipped already present"
+}
+
 # Safe package installation with tracking (enhanced version)
 install_packages() {
     local packages=("$@")
