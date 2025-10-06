@@ -95,19 +95,12 @@ setup_progress_area() {
     PROGRESS_TITLE="$title"
     PROGRESS_TOTAL=100
     
-    lines=$(tput lines)
-    CURRENT_NR_LINES=$lines
-    lines=$((lines-2))  # Reserve 2 lines for progress and timer
-    
-    echo -en "\n\n"
-    echo -en "$CODE_SAVE_CURSOR"
-    echo -en "\033[0;${lines}r"
-    echo -en "$CODE_RESTORE_CURSOR"
-    echo -en "$CODE_CURSOR_IN_SCROLL_AREA"
+    echo "═══════════════════════════════════════════════════════════════"
+    echo "           PHYNX PANEL INSTALLATION PROGRESS TRACKER"
+    echo "═══════════════════════════════════════════════════════════════"
     
     PROGRESS_START=$(date +%s)
     start_timer_display
-    draw_progress_bar 0
 }
 
 # Destroy progress bar area
@@ -193,25 +186,9 @@ clear_progress_bar() {
 # Start real-time timer display
 start_timer_display() {
     stop_timer_display  # Stop any existing timer
-    {
-        while true; do
-            if [[ -n "$PROGRESS_START" ]]; then
-                local elapsed=$(($(date +%s) - PROGRESS_START))
-                local minutes=$((elapsed / 60))
-                local seconds=$((elapsed % 60))
-                
-                # Update timer line (second to last line)
-                lines=$(tput lines)
-                echo -en "$CODE_SAVE_CURSOR"
-                echo -en "\033[$((lines-1));0f"
-                printf "\r Elapsed: %02d:%02d" "$minutes" "$seconds"
-                tput el
-                echo -en "$CODE_RESTORE_CURSOR"
-            fi
-            sleep 1
-        done
-    } &
-    TIMER_PID=$!
+    # Simplified timer to avoid terminal conflicts
+    PROGRESS_START=$(date +%s)
+    log "Installation timer started"
 }
 
 # Stop timer display
@@ -223,12 +200,16 @@ stop_timer_display() {
     fi
 }
 
-# Update installation progress
+# Update installation progress (simplified version)
 update_progress() {
     local percentage=$1
     local status="${2:-}"
     INSTALLATION_PROGRESS=$percentage
-    draw_progress_bar "$percentage" "$status"
+    
+    # Simple progress display without complex terminal manipulation
+    if [[ -n "$status" ]]; then
+        echo "[$percentage%] $status"
+    fi
 }
 
 # ===============================
@@ -2197,17 +2178,29 @@ update_system() {
     
     export DEBIAN_FRONTEND=noninteractive
     
-    # Update package lists with live progress
-    run_with_progress "apt-get update -y -qq" "Updating package lists" 120 || die "Failed to update package lists"
+    # Update package lists (compatible with progress system)
+    if apt-get update -y -qq >/dev/null 2>&1; then
+        log "Package lists updated successfully"
+    else
+        die "Failed to update package lists"
+    fi
     
-    # Upgrade existing packages with live progress
-    run_with_progress "apt-get upgrade -y -qq" "Upgrading system packages" 300 || warn "Some packages failed to upgrade"
+    # Upgrade existing packages (compatible with progress system)
+    if apt-get upgrade -y -qq >/dev/null 2>&1; then
+        log "System packages upgraded successfully"
+    else
+        warn "Some packages failed to upgrade"
+    fi
     
     # Install essential tools if not present
-    apt-get install -y software-properties-common apt-transport-https ca-certificates curl wget gnupg lsb-release bc
+    apt-get install -y software-properties-common apt-transport-https ca-certificates curl wget gnupg lsb-release bc >/dev/null 2>&1
 
-    # ADD repo
-    add-apt-repository ppa:ondrej/php -y || warn "Could not install PHP repositories"
+    # Add PHP repository
+    if add-apt-repository ppa:ondrej/php -y >/dev/null 2>&1; then
+        log "PHP repository added successfully"
+    else
+        warn "Could not install PHP repositories"
+    fi
     
     ok "System updated successfully"
 }
@@ -2292,19 +2285,8 @@ install_core_packages() {
         "vim"
     )
     
-    # Install packages with retry mechanism
-    for package in "${CORE_PACKAGES[@]}"; do
-        log "Installing $package..."
-        if ! apt-get install -y "$package"; then
-            warn "$package installation failed, retrying..."
-            if ! apt-get install -y "$package"; then
-                err "Failed to install $package after retry"
-                read -p "Continue without $package? [y/N]: " -n 1 -r
-                echo
-                [[ $REPLY =~ ^[Yy]$ ]] || die "Installation aborted due to package failure"
-            fi
-        fi
-    done
+    # Use our smart package installation system
+    install_packages_smart "${CORE_PACKAGES[@]}"
     
     ok "Core packages installed successfully"
 }
