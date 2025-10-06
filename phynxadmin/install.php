@@ -52,6 +52,9 @@ if ($force_reinstall && file_exists('config.php')) {
     session_destroy();
     session_start();
     
+    // Set flag to allow fresh installation
+    $_SESSION['fresh_install'] = true;
+    
     // Redirect to step 1 for fresh installation
     header('Location: install.php?step=1');
     exit;
@@ -60,7 +63,9 @@ if ($force_reinstall && file_exists('config.php')) {
 // --- Post-Installation Security Check ---
 // If config.php already exists, it means the installation is complete.
 // We should redirect to the completion screen or block access if trying to re-install.
-if (file_exists('config.php') && !isset($_GET['installer_delete']) && !$force_reinstall) {
+// Allow fresh installation if session flag is set or force parameter is used
+$is_fresh_install = isset($_SESSION['fresh_install']) && $_SESSION['fresh_install'] === true;
+if (file_exists('config.php') && !isset($_GET['installer_delete']) && !$force_reinstall && !$is_fresh_install) {
     if ($current_step != 5) {
         // Redirect to completion screen to allow installer removal or fresh install
         header('Location: install.php?step=5');
@@ -121,6 +126,8 @@ EOT;
             $current_step = 4; // Go back to step 4 to show the error
         } else {
             unset($_SESSION['db_config']);
+            // Clear fresh install flag when installation is complete
+            unset($_SESSION['fresh_install']);
         }
     } else {
         // Session lost, redirect to db config step
@@ -223,6 +230,13 @@ function checkRequirements() {
                     <div class="error-message">
                         <i class="fas fa-exclamation-triangle"></i>
                         <div><?= $error ?></div>
+                    </div>
+                <?php endif; ?>
+                
+                <?php if (isset($_SESSION['fresh_install']) && $_SESSION['fresh_install'] === true): ?>
+                    <div class="info-message" style="margin: 10px 0; padding: 10px; background: #e3f2fd; border-radius: 5px; border-left: 4px solid #2196f3; color: #1565c0;">
+                        <i class="fas fa-info-circle"></i> 
+                        <strong>Fresh Installation Mode:</strong> Previous configuration has been cleared. Proceeding with new installation.
                     </div>
                 <?php endif; ?>
 
