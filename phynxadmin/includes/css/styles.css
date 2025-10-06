@@ -4174,3 +4174,693 @@ button .insert-column-btn:hover {
         grid-template-columns: 1fr;
     }
 }
+
+/* ========================================
+   INSTALLER STYLES
+   ======================================== */
+
+/* Top progress bar */
+.top-progress-bar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 4px;
+    background: rgba(255, 255, 255, 0.1);
+    z-index: 1000;
+}
+
+.top-progress-fill {
+    height: 100%;
+    background: linear-gradient(90deg, var(--primary-color), var(--secondary-color));
+    width: 0%;
+    transition: width 0.3s ease;
+}
+
+/* Install wrapper */
+.install-wrapper {
+    min-height: 100vh;
+    display: flex;
+    background: var(--bg-primary);
+}
+
+/* Install sidebar */
+.install-sidebar {
+    width: 320px;
+    background: var(--bg-secondary);
+    border-right: 1px solid var(--border-color);
+    padding: 32px 0;
+    display: flex;
+    flex-direction: column;
+    position: relative;
+}
+
+.install-logo {
+    text-align: center;
+    padding: 0 32px 32px;
+    border-bottom: 1px solid var(--border-color);
+    margin-bottom: 32px;
+}
+
+.install-logo i {
+    font-size: 48px;
+    color: var(--primary-color);
+    margin-bottom: 16px;
+}
+
+.install-logo h1 {
+    font-size: 32px;
+    font-weight: 700;
+    color: var(--primary-color);
+    margin-bottom: 8px;
+}
+
+.install-logo p {
+    color: var(--text-muted);
+    font-size: 14px;
+    margin-bottom: 16px;
+}
+
+.install-version {
+    background: var(--card-bg);
+    border: 1px solid var(--border-color);
+    padding: 8px 16px;
+    border-radius: 20px;
+    font-size: 12px;
+    color: var(--text-secondary);
+    display: inline-block;
+}
+
+/* Progress section */
+.progress-section {
+    padding: 0 32px 32px;
+    border-bottom: 1px solid var(--border-color);
+    margin-bottom: 32px;
+}
+
+.progress-bar {
+    height: 8px;
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 4px;
+    overflow: hidden;
+    margin-bottom: 16px;
+}
+
+.progress-fill {
+    height: 100%;
+    background: linear-gradient(90deg, var(--primary-color), var(--secondary-color));
+    border-radius: 4px;
+    transition: width 0.3s ease;
+}
+
+.progress-text {
+    font-size: 12px;
+    color: var(--text-muted);
+    text-align: center;
+}
+
+/* Steps sidebar */
+.steps-sidebar {
+    flex: 1;
+    padding: 0 32px;
+}
+
+.step-item {
+    display: flex;
+    align-items: center;
+    margin-bottom: 24px;
+    opacity: 0;
+    transform: translateX(-20px);
+    transition: all 0.3s ease;
+}
+
+.step-number {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    background: var(--bg-tertiary);
+    border: 2px solid var(--border-color);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-right: 16px;
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-muted);
+    transition: all 0.3s ease;
+}
+
+.step-info {
+    flex: 1;
+}
+
+.step-title {
+    font-weight: 600;
+    color: var(--text-secondary);
+    margin-bottom: 4px;
+    transition: color 0.3s ease;
+}
+
+.step-status {
+    font-size: 12px;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+/* Step states */
+.step-item.completed .step-number {
+    background: var(--primary-color);
+    border-color: var(--primary-color);
+    color: var(--bg-primary);
+}
+
+.step-item.completed .step-title {
+    color: var(--primary-color);
+}
+
+.step-item.active .step-number {
+    border-color: var(--primary-color);
+    color: var(--primary-color);
+    box-shadow: 0 0 0 4px rgba(227, 252, 2, 0.1);
+}
+
+.step-item.active .step-title {
+    color: var(--primary-color);
+}
+
+/* Install main content */
+.install-main {
+    flex: 1;
+    padding: 64px 48px 48px;
+    overflow-y: auto;
+}
+
+.install-content {
+    max-width: 800px;
+    margin: 0 auto;
+}
+
+.step-content {
+    opacity: 0;
+    transform: translateY(20px);
+    transition: all 0.3s ease;
+}
+
+.step-content h2 {
+    font-size: 32px;
+    font-weight: 700;
+    color: var(--primary-color);
+    margin-bottom: 16px;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+}
+
+.step-content p {
+    font-size: 16px;
+    color: var(--text-secondary);
+    margin-bottom: 32px;
+    line-height: 1.6;
+}
+
+/* Feature grid */
+.feature-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+    gap: 24px;
+    margin-bottom: 48px;
+}
+
+.feature-item {
+    background: var(--card-bg);
+    border: 1px solid var(--border-color);
+    padding: 24px;
+    border-radius: 12px;
+    text-align: center;
+    opacity: 0;
+    transform: translateY(20px);
+    transition: all 0.3s ease;
+}
+
+.feature-item i {
+    font-size: 32px;
+    color: var(--primary-color);
+    margin-bottom: 16px;
+}
+
+.feature-item h4 {
+    font-size: 18px;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-bottom: 8px;
+}
+
+.feature-item p {
+    font-size: 14px;
+    color: var(--text-muted);
+    margin: 0;
+}
+
+/* Requirements grid */
+.requirements-grid {
+    margin-bottom: 48px;
+}
+
+.requirement-item {
+    display: flex;
+    align-items: center;
+    padding: 16px 24px;
+    background: var(--card-bg);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    margin-bottom: 12px;
+    opacity: 0;
+    transform: translateX(-20px);
+    transition: all 0.3s ease;
+}
+
+.requirement-item.pass {
+    border-color: var(--success-color);
+    background: rgba(78, 205, 196, 0.05);
+}
+
+.requirement-item.fail {
+    border-color: var(--error-color);
+    background: rgba(239, 83, 80, 0.05);
+}
+
+.req-icon {
+    margin-right: 16px;
+}
+
+.req-icon i {
+    font-size: 20px;
+}
+
+.requirement-item.pass .req-icon i {
+    color: var(--success-color);
+}
+
+.requirement-item.fail .req-icon i {
+    color: var(--error-color);
+}
+
+.req-info {
+    flex: 1;
+}
+
+.req-name {
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-bottom: 4px;
+}
+
+.req-status {
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.requirement-item.pass .req-status {
+    color: var(--success-color);
+}
+
+.requirement-item.fail .req-status {
+    color: var(--error-color);
+}
+
+/* Install form */
+.install-form {
+    margin-bottom: 32px;
+}
+
+.form-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 24px;
+    margin-bottom: 24px;
+}
+
+.form-group {
+    display: flex;
+    flex-direction: column;
+}
+
+.form-group label {
+    font-weight: 600;
+    color: var(--text-secondary);
+    margin-bottom: 8px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.form-group input {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 12px 16px;
+    font-size: 14px;
+    color: var(--text-primary);
+    transition: all 0.3s ease;
+}
+
+.form-group input:focus {
+    outline: none;
+    border-color: var(--primary-color);
+    box-shadow: 0 0 0 3px rgba(227, 252, 2, 0.1);
+}
+
+/* Console output */
+.console-output {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+    margin-top: 32px;
+    overflow: hidden;
+}
+
+.console-header {
+    background: var(--bg-tertiary);
+    padding: 16px 24px;
+    border-bottom: 1px solid var(--border-color);
+    font-weight: 600;
+    color: var(--text-primary);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.console-content {
+    padding: 24px;
+    font-family: 'JetBrains Mono', 'Fira Code', monospace;
+    font-size: 14px;
+    line-height: 1.6;
+    max-height: 300px;
+    overflow-y: auto;
+}
+
+.console-line {
+    margin-bottom: 8px;
+}
+
+.console-info {
+    color: var(--text-secondary);
+}
+
+.console-success {
+    color: var(--success-color);
+}
+
+.console-error {
+    color: var(--error-color);
+}
+
+.console-line.typing {
+    border-right: 2px solid var(--primary-color);
+    animation: typing 1s steps(40, end);
+}
+
+.console-line.blinking {
+    border-right: 2px solid var(--primary-color);
+    animation: blink 1s infinite;
+}
+
+/* Config preview */
+.config-preview {
+    background: var(--card-bg);
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+    padding: 24px;
+    margin-bottom: 32px;
+}
+
+.config-preview h4 {
+    color: var(--primary-color);
+    margin-bottom: 16px;
+    font-size: 18px;
+}
+
+.config-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px 0;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.config-item:last-child {
+    border-bottom: none;
+}
+
+.config-item span {
+    color: var(--text-muted);
+}
+
+.config-item strong {
+    color: var(--text-primary);
+}
+
+/* Success content */
+.success-content {
+    text-align: center;
+}
+
+.success-icon {
+    margin-bottom: 24px;
+}
+
+.success-icon i {
+    font-size: 64px;
+    color: var(--success-color);
+    animation: successPulse 2s ease-in-out infinite;
+}
+
+.success-content h2 {
+    justify-content: center;
+}
+
+/* Completion info */
+.completion-info {
+    background: var(--card-bg);
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+    padding: 32px;
+    margin: 32px 0;
+}
+
+.info-item-install {
+    display: flex;
+    align-items: center;
+    padding: 16px 0;
+    border-bottom: 1px solid var(--border-color);
+    transition: all 0.3s ease;
+}
+
+.info-item-install:last-child {
+    border-bottom: none;
+}
+
+.info-item-install i {
+    margin-right: 16px;
+    font-size: 20px;
+    color: var(--text-muted);
+}
+
+.info-item-install span {
+    flex: 1;
+    color: var(--text-secondary);
+    font-weight: 500;
+}
+
+.completion-check {
+    color: var(--success-color);
+    font-size: 20px;
+}
+
+.dots {
+    animation: dots 1s infinite;
+}
+
+/* Action buttons */
+.action-buttons {
+    display: flex;
+    gap: 16px;
+    justify-content: center;
+    flex-wrap: wrap;
+    margin-top: 48px;
+}
+
+.btn {
+    padding: 12px 24px;
+    border-radius: 8px;
+    font-weight: 600;
+    font-size: 14px;
+    text-decoration: none;
+    border: none;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.btn-primary {
+    background: var(--primary-color);
+    color: var(--bg-primary);
+}
+
+.btn-primary:hover {
+    background: var(--secondary-color);
+    transform: translateY(-2px);
+    box-shadow: 0 8px 32px rgba(227, 252, 2, 0.3);
+}
+
+.btn-secondary {
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
+    border: 1px solid var(--border-color);
+}
+
+.btn-secondary:hover {
+    background: var(--card-bg);
+    border-color: var(--primary-color);
+    color: var(--primary-color);
+}
+
+.btn-success {
+    background: var(--success-color);
+    color: white;
+}
+
+.btn-success:hover {
+    background: #45b7aa;
+    transform: translateY(-2px);
+}
+
+.btn-danger {
+    background: var(--error-color);
+    color: white;
+}
+
+.btn-danger:hover {
+    background: #d32f2f;
+    transform: translateY(-2px);
+}
+
+/* Info message */
+.info-message {
+    background: rgba(33, 150, 243, 0.1);
+    border: 1px solid rgba(33, 150, 243, 0.2);
+    border-radius: 8px;
+    padding: 16px;
+    margin: 16px 0;
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+}
+
+.info-message i {
+    color: #2196f3;
+    margin-top: 2px;
+}
+
+.info-message strong {
+    color: #2196f3;
+}
+
+/* Animations */
+@keyframes successPulse {
+    0%, 100% { transform: scale(1); }
+    50% { transform: scale(1.1); }
+}
+
+@keyframes checkAppear {
+    0% {
+        opacity: 0;
+        transform: scale(0);
+    }
+    50% {
+        transform: scale(1.2);
+    }
+    100% {
+        opacity: 1;
+        transform: scale(1);
+    }
+}
+
+@keyframes dots {
+    0%, 20% { content: ''; }
+    40% { content: '.'; }
+    60% { content: '..'; }
+    80%, 100% { content: '...'; }
+}
+
+@keyframes typing {
+    from { width: 0; }
+    to { width: 100%; }
+}
+
+@keyframes blink {
+    0%, 50% { border-color: var(--primary-color); }
+    51%, 100% { border-color: transparent; }
+}
+
+@keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.7; }
+}
+
+/* Mobile responsiveness for installer */
+@media (max-width: 768px) {
+    .install-wrapper {
+        flex-direction: column;
+    }
+    
+    .install-sidebar {
+        width: 100%;
+        padding: 24px 0;
+    }
+    
+    .install-main {
+        padding: 32px 24px;
+    }
+    
+    .form-row {
+        grid-template-columns: 1fr;
+        gap: 16px;
+    }
+    
+    .feature-grid {
+        grid-template-columns: 1fr;
+    }
+    
+    .action-buttons {
+        flex-direction: column;
+        align-items: center;
+    }
+    
+    .btn {
+        width: 100%;
+        justify-content: center;
+        max-width: 280px;
+    }
+}
+
+@media (max-width: 480px) {
+    .install-main {
+        padding: 24px 16px;
+    }
+    
+    .step-content h2 {
+        font-size: 24px;
+    }
+    
+    .completion-info,
+    .config-preview {
+        padding: 16px;
+    }
+}
