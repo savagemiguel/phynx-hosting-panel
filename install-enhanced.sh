@@ -4528,8 +4528,7 @@ main() {
     install_phynx
     
     # Show completion summary
-    show_installation_complete_info
-    display_installation_summary
+    show_installation_summary
     
     log "Installation process completed successfully!"
 }
