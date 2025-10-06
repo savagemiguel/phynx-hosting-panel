@@ -4229,62 +4229,6 @@ done)
 EOF
 }
 
-# Parse command line arguments
-parse_arguments() {
-    while [[ $# -gt 0 ]]; do
-        case $1 in
-            --web-server=*)
-                WEB_SERVER="${1#*=}"
-                shift
-                ;;
-            --domain=*)
-                PANEL_DOMAIN="${1#*=}"
-                shift
-                ;;
-            --email=*)
-                ADMIN_EMAIL="${1#*=}"
-                shift
-                ;;
-            --no-pma)
-                INSTALL_PMA="no"
-                shift
-                ;;
-            --no-bind)
-                INSTALL_BIND="no"
-                shift
-                ;;
-            --csf)
-                INSTALL_CSF="yes"
-                shift
-                ;;
-            --setup-dns)
-                SETUP_DNS_ZONES="yes"
-                shift
-                ;;
-            --no-dns)
-                SETUP_DNS_ZONES="no"
-                shift
-                ;;
-            --skip-dns-tests)
-                SKIP_DNS_TESTS="yes"
-                shift
-                ;;
-            --debug-apache)
-                debug_apache_config
-                exit 0
-                ;;
-            --help|-h)
-                show_help
-                exit 0
-                ;;
-            *)
-                warn "Unknown option: $1"
-                shift
-                ;;
-        esac
-    done
-}
-
 show_help() {
     echo "Phynx Panel Enhanced Installer"
     echo ""
@@ -4348,6 +4292,19 @@ parse_arguments() {
                 ;;
             --csf)
                 INSTALL_CSF="yes"
+                ;;
+            --setup-dns)
+                SETUP_DNS_ZONES="yes"
+                ;;
+            --no-dns)
+                SETUP_DNS_ZONES="no"
+                ;;
+            --skip-dns-tests)
+                SKIP_DNS_TESTS="yes"
+                ;;
+            --debug-apache)
+                debug_apache_config
+                exit 0
                 ;;
             --silent)
                 SILENT_MODE="yes"
