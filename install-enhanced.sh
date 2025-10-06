@@ -3176,7 +3176,16 @@ create_ssl_certificate() {
     
     # Try to get Let's Encrypt certificate
     echo -e "${YELLOW}Obtaining Let's Encrypt SSL certificate...${NC}"
-    if certbot certonly --apache --non-interactive --agree-tos --email "$ADMIN_EMAIL" -d "$domain" -d "www.$domain" -d "$PANEL_SUBDOMAIN" -d "$PHYNXADMIN_SUBDOMAIN" 2>/dev/null; then
+    
+    # First, ensure Apache is running and configured properly
+    systemctl start apache2 >/dev/null 2>&1 || true
+    systemctl reload apache2 >/dev/null 2>&1 || true
+    
+    # Use webroot method which is more reliable than apache plugin
+    mkdir -p "/var/www/html/.well-known/acme-challenge"
+    chown -R www-data:www-data "/var/www/html/.well-known"
+    
+    if certbot certonly --webroot --webroot-path="/var/www/html" --non-interactive --agree-tos --email "$ADMIN_EMAIL" -d "$domain" -d "www.$domain" 2>/dev/null; then
         echo -e "${GREEN}✓ Successfully obtained Let's Encrypt certificate${NC}"
         
         # Set certificate paths for Apache configuration
@@ -3205,7 +3214,7 @@ create_ssl_certificate() {
         openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
             -keyout "$KEY_DIR/$domain.key" \
             -out "$SSL_DIR/$domain.crt" \
-            -subj "/C=$C/ST=$ST/L=$L/O=$O/OU=$OU/CN=$CN" 2>/dev/null
+            -subj "/C=$C/ST=$ST/L=$L/O=$O/OU=$OU/CN=$domain" 2>/dev/null
         
         # Set proper permissions
         chmod 600 "$KEY_DIR/$domain.key"
@@ -3459,8 +3468,8 @@ configure_apache_ssl_vhost() {
 
     # SSL Configuration
     SSLEngine on
-    SSLCertificateFile /etc/ssl/certs/ssl-cert-$MAIN_DOMAIN.pem
-    SSLCertificateKeyFile /etc/ssl/private/ssl-cert-$MAIN_DOMAIN.key
+    SSLCertificateFile $SSL_CERT_FILE
+    SSLCertificateKeyFile $SSL_KEY_FILE
 
     # SSL Security settings
     SSLProtocol all -SSLv3 -TLSv1 -TLSv1.1
@@ -3606,6 +3615,11 @@ EOF
     # Replace certificate placeholders with actual certificate paths
     sed -i "s|/etc/ssl/certs/ssl-cert-snakeoil.pem|$SSL_CERT_FILE|g" "$ssl_config"
     sed -i "s|/etc/ssl/private/ssl-cert-snakeoil.key|$SSL_KEY_FILE|g" "$ssl_config"
+    
+    # Ensure SSL modules are enabled before configuring
+    a2enmod ssl >/dev/null 2>&1 || true
+    a2enmod rewrite >/dev/null 2>&1 || true
+    a2enmod headers >/dev/null 2>&1 || true
     
     # Test Apache configuration with SSL before enabling
     log "Testing Apache SSL configuration..."
@@ -4873,8 +4887,19 @@ install_phynx() {
     if create_ssl_certificate "$MAIN_DOMAIN"; then
         if [[ "$WEB_SERVER" == "apache" ]]; then
             update_progress 62 "Configuring SSL virtual hosts"
-            if ! configure_apache_ssl_vhost "$MAIN_DOMAIN"; then
+            if configure_apache_ssl_vhost "$MAIN_DOMAIN"; then
+                ok "SSL configured successfully - HTTPS enabled"
+                # Test the SSL configuration by reloading Apache
+                if systemctl reload apache2; then
+                    ok "Apache reloaded successfully with SSL configuration"
+                else
+                    warn "Apache reload failed - disabling SSL and falling back to HTTP"
+                    a2dissite phynx-ssl.conf >/dev/null 2>&1 || true
+                    systemctl reload apache2 || systemctl restart apache2
+                fi
+            else
                 warn "SSL virtual host configuration failed - continuing with HTTP"
+                a2dissite phynx-ssl.conf >/dev/null 2>&1 || true
                 systemctl reload apache2 || systemctl restart apache2
             fi
         fi
