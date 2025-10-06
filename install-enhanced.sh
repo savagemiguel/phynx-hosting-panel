@@ -217,14 +217,26 @@ update_progress() {
 # Helper Functions
 # ===============================
 
+# Generate secure password
+generate_password() {
+    local length="${1:-16}"
+    # Use openssl to generate a random password
+    if command -v openssl >/dev/null 2>&1; then
+        openssl rand -base64 "$((length * 3 / 4))" | tr -d "=+/" | cut -c1-"$length"
+    else
+        # Fallback using /dev/urandom
+        tr -dc 'A-Za-z0-9!@#$%^&*' < /dev/urandom | head -c "$length"
+    fi
+}
+
 print_banner() {
     clear
     echo -e "${BLUE}"
     echo "╔════════════════════════════════════════════════════════════════════════════════╗"
-    echo "║                        ${PANEL_DISPLAY_NAME} Installer v${PANEL_VERSION}                      ║"
-    echo "║                                                                                ║"
-    echo "║  Enhanced installation script with custom Phynx deployment                  ║"
-    echo "║  Supports Ubuntu 22.04+ with comprehensive security features                  ║"
+    echo "║                  ${PANEL_DISPLAY_NAME} Installer v${PANEL_VERSION}           ║"
+    echo "║                                                                              ║"
+    echo "║  Enhanced installation script with custom Phynx deployment                   ║"
+    echo "║  Supports Ubuntu 22.04+ with comprehensive security features                 ║"
     echo "╚════════════════════════════════════════════════════════════════════════════════╝"
     echo -e "${NC}\n"
 }
@@ -3098,6 +3110,9 @@ WEBSITE_EOF
 setup_ftp_server() {
     log "Configuring FTP server (vsftpd)..."
     
+    # Temporarily disable exit on error for this function
+    set +e
+    
     # Create FTP configuration
     cat > /etc/vsftpd.conf << 'FTP_EOF'
 # Basic settings
@@ -3140,26 +3155,56 @@ FTP_EOF
     local ftp_user="phynx_admin"
     local ftp_pass=$(generate_password 16)
     
+    log "Creating FTP user: $ftp_user"
+    
+    # Ensure credentials file exists
+    touch /root/.phynx_credentials
+    
     # Store FTP credentials
     echo "FTP_USER=$ftp_user" >> /root/.phynx_credentials
     echo "FTP_PASS=$ftp_pass" >> /root/.phynx_credentials
     
-    # Create user if it doesn't exist
-    if ! id "$ftp_user" &>/dev/null; then
-        useradd -m -d "/var/www/phynx" -s /bin/bash "$ftp_user"
-        echo "$ftp_user:$ftp_pass" | chpasswd
-        
-        # Set home directory to web root
-        usermod -d "/var/www/phynx" "$ftp_user"
-        
-        # Create user directory structure
-        mkdir -p "/var/www/phynx"
-        chown "$ftp_user:www-data" "/var/www/phynx"
-        chmod 755 "/var/www/phynx"
-        
-        # Give user access to web directories
-        usermod -a -G www-data "$ftp_user"
+    # Create web directory first
+    mkdir -p "/var/www/phynx"
+    
+    # Remove user if it exists to recreate properly
+    if id "$ftp_user" &>/dev/null; then
+        log "Removing existing FTP user to recreate properly..."
+        userdel -r "$ftp_user" 2>/dev/null || true
     fi
+    
+    # Create user with proper home directory
+    log "Creating FTP user with home directory /var/www/phynx"
+    if useradd -m -d "/var/www/phynx" -s /bin/bash "$ftp_user" 2>/dev/null; then
+        log "FTP user created successfully"
+    else
+        # If user creation fails, try without -m flag
+        log "Retrying user creation without -m flag..."
+        useradd -d "/var/www/phynx" -s /bin/bash "$ftp_user" 2>/dev/null || {
+            warn "Failed to create user, trying alternative method..."
+            # Last resort - create user with default home then modify
+            useradd "$ftp_user" 2>/dev/null || true
+            usermod -d "/var/www/phynx" -s /bin/bash "$ftp_user" 2>/dev/null || true
+        }
+    fi
+    
+    # Set password
+    log "Setting FTP user password..."
+    if echo "$ftp_user:$ftp_pass" | chpasswd 2>/dev/null; then
+        log "FTP password set successfully"
+    else
+        warn "Failed to set password using chpasswd, trying passwd command..."
+        echo -e "$ftp_pass\n$ftp_pass" | passwd "$ftp_user" >/dev/null 2>&1 || {
+            warn "Password setting failed - FTP user created but password may need manual setting"
+        }
+    fi
+    
+    # Ensure proper ownership and permissions
+    chown -R "$ftp_user:www-data" "/var/www/phynx" 2>/dev/null || true
+    chmod 755 "/var/www/phynx"
+    
+    # Add user to www-data group
+    usermod -a -G www-data "$ftp_user" 2>/dev/null || true
     
     # Add user to allowed FTP users
     echo "$ftp_user" > /etc/vsftpd.userlist
@@ -3177,8 +3222,11 @@ FTP_EOF
         log "FTP User: $ftp_user"
         log "FTP Password: $ftp_pass"
     else
-        warn "FTP server configuration may have issues"
+        warn "FTP server configuration may have issues - check systemctl status vsftpd"
     fi
+    
+    # Re-enable exit on error
+    set -e
 }
 
 # Deploy and configure custom Phynx
