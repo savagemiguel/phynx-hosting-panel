@@ -21,14 +21,6 @@ if (isset($_GET['installer_delete']) && $_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
-// --- Post-Installation Security Check ---
-// If config.php already exists, it means the installation is complete.
-// We should prevent access to the installer, except for the final deletion step.
-if (file_exists('config.php') && !isset($_GET['installer_delete'])) {
-    header('Location: index.php');
-    exit;
-}
-
 // Include the functions api
 // include_once 'includes/config/funcs.api.php'; // funcs.api.php doesn't have checkVersion
 
@@ -47,6 +39,17 @@ $steps = [
 ];
 
 $current_step = $_GET['step'] ?? 1;
+
+// --- Post-Installation Security Check ---
+// If config.php already exists, it means the installation is complete.
+// We should redirect to the completion screen or block access if trying to re-install.
+if (file_exists('config.php') && !isset($_GET['installer_delete'])) {
+    if ($current_step != 5) {
+        // Redirect to completion screen to allow installer removal
+        header('Location: install.php?step=5');
+        exit;
+    }
+}
 $error = null;
 
 // Handle step 4 submission (create config file) before rendering step 5
