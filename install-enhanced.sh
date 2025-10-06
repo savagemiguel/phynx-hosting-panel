@@ -607,12 +607,18 @@ execute_with_retry() {
 # Check if a package is already installed (robust version)
 check_package_installed() {
     local package="$1"
-    dpkg -l "$package" 2>/dev/null | grep -q "^ii" || return 1
-    return 0
+    # Use explicit conditional to avoid triggering set -e
+    if dpkg -l "$package" 2>/dev/null | grep -q "^ii"; then
+        return 0  # Package is installed
+    else
+        return 1  # Package is not installed
+    fi
 }
 
 # Smart package installation with progress feedback (robust version)
 install_packages_smart() {
+    # Temporarily disable exit on error for this function
+    set +e
     local packages=("$@")
     local total=${#packages[@]}
     local installed=0
@@ -648,6 +654,8 @@ install_packages_smart() {
         fi
     done
     
+    # Re-enable exit on error
+    set -e
     echo "Installation summary: $installed installed, $skipped already present"
     return 0  # Always return success to prevent script exit
 }
