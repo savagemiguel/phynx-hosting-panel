@@ -1,7 +1,7 @@
 <?php
 require_once '../config.php';
 require_once '../includes/functions.php';
-requireAdmin();
+requireAdmin(true);
 
 $message = '';
 $selectedLog = $_GET['log'] ?? 'apache_access';

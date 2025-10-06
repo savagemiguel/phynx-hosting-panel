@@ -3,7 +3,7 @@ require_once '../config.php';
 require_once '../includes/functions.php';
 
 // Check admin authentication
-requireAdmin();
+requireAdmin(true);
 
 // Verify CSRF token
 if ($_POST && (!isset($_POST['csrf_token']) || $_POST['csrf_token'] !== $_SESSION['csrf_token'])) {

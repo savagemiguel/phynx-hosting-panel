@@ -487,9 +487,6 @@ body.mobile-nav-active .nav-toggle-tab,
     background: rgba(227, 252, 2, 0.1);
     border-left-color: var(--primary-color);
     color: var(--primary-color);
-    transition: max-height 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-    max-height: 0;
-    overflow: hidden;
 }
 
 .db-item.expanded .toggle-icon {
@@ -4728,6 +4725,45 @@ button .insert-column-btn:hover {
 .btn-secondary:hover {
     background: var(--card-bg);
     border-color: var(--primary-color);
+}
+
+/* Warning button styles */
+.btn-warning {
+    background: linear-gradient(135deg, #f59e0b, #d97706);
+    color: white;
+    border: none;
+    padding: 12px 24px;
+    border-radius: 8px;
+    font-weight: 600;
+    text-decoration: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    font-size: 14px;
+}
+
+.btn-warning:hover {
+    background: linear-gradient(135deg, #d97706, #b45309);
+    transform: translateY(-2px);
+    box-shadow: 0 8px 25px rgba(245, 158, 11, 0.3);
+}
+
+.btn-warning:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+    transform: none;
+}
+
+/* Permission fix result styles */
+.permission-details ul {
+    margin: 0;
+    padding-left: 20px;
+}
+
+.permission-details li {
+    margin: 4px 0;
     color: var(--primary-color);
 }
 

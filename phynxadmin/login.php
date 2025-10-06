@@ -4,8 +4,8 @@ session_start();
 // Debug: Check what's in the session
 error_log("Session data: ".print_r($_SESSION, true));
 
-require_once __DIR__.'/config.php';
-require_once __DIR__.'/includes/config/conf.php';
+require_once 'config.php';
+require_once 'includes/config/conf.php';
 
 /** DEBUG: UNCOMMENT THIS FOR DEBUGGING
 echo '<pre style="background: black; color: white; padding: 10px; margin: 10px;">';
@@ -56,6 +56,7 @@ if ($_POST && isset($_POST['login'])) {
                 $_SESSION['db_user'] = $username;
                 $_SESSION['db_pass'] = $password; // Store for conf.php
                 $_SESSION['server_id'] = $server_id;
+                $_SESSION['current_server'] = $server_id; // Add this for consistency
                 $_SESSION['server_name'] = $server_config['name'];
                 $_SESSION['server_host'] = $server_config['host'];
                 $_SESSION['logged_in'] = true;

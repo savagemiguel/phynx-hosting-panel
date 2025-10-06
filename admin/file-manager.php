@@ -1,7 +1,7 @@
 <?php
 require_once '../config.php';
 require_once '../includes/functions.php';
-requireAdmin();
+requireAdmin(true);
 
 $currentPath = $_GET['path'] ?? '/var/www';
 $currentPath = realpath($currentPath) ?: '/var/www';

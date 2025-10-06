@@ -7,17 +7,22 @@ function isAdmin() {
     return isset($_SESSION['role']) && $_SESSION['role'] === 'admin';
 }
 
-function requireLogin() {
+function requireLogin($from_admin = false) {
     if (!isLoggedIn()) {
-        header('Location: login.php');
+        $login_url = $from_admin ? '../login.php' : 'login.php';
+        header('Location: ' . $login_url);
         exit;
     }
 }
 
-function requireAdmin() {
-    requireLogin();
+function requireAdmin($from_admin = true) {
+    requireLogin($from_admin);
     if (!isAdmin()) {
-        header('Location: index.php');
+        if ($from_admin) {
+            header('Location: ../index.php');
+        } else {
+            header('Location: index.php');
+        }
         exit;
     }
 }

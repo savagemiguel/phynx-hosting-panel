@@ -2,7 +2,7 @@
 require_once '../config.php';
 require_once '../includes/functions.php';
 require_once '../includes/docker.php';
-requireAdmin();
+requireAdmin(true);
 
 $message = '';
 $notices = [];

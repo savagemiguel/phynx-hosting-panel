@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <title>Navigation Test</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/all.min.css">
+    <link rel="stylesheet" href="includes/css/styles.css">
+</head>
+<body>
+    <header id="header">
+        <button class="mobile-nav-toggle" id="mobileNavToggle">
+            <i class="fas fa-bars"></i> Navigation
+        </button>
+    </header>
+    
+    <div class="mobile-nav-backdrop" id="mobileNavBackdrop"></div>
+    
+    <div id="main">
+        <nav id="navigation">
+            <div class="nav-header">
+                <h3>Test Navigation</h3>
+            </div>
+            <div class="db-tree">
+                <div class="db-item">
+                    <a href="#" class="db-header" data-db="test_db">
+                        <i class="fas fa-plus toggle-icon"></i>
+                        <i class="fas fa-database db-icon"></i>
+                        <span class="db-name">test_database</span>
+                    </a>
+                    <div class="tables">
+                        <!-- Tables will load here -->
+                    </div>
+                </div>
+            </div>
+        </nav>
+        
+        <div class="nav-toggle-tab" id="navToggleTab">
+            <span>&gt;</span>
+        </div>
+        
+        <div id="content">
+            <h1>Test Content</h1>
+            <p>Click the navigation elements to test functionality.</p>
+        </div>
+    </div>
+
+    <script>
+        console.log('TEST: Starting navigation test');
+        
+        document.addEventListener('DOMContentLoaded', function() {
+            console.log('TEST: DOM loaded');
+            
+            // Test mobile toggle
+            const mobileToggle = document.getElementById('mobileNavToggle');
+            const navigation = document.getElementById('navigation');
+            const navBackdrop = document.getElementById('mobileNavBackdrop');
+            const navToggleTab = document.getElementById('navToggleTab');
+            const main = document.getElementById('main');
+            
+            console.log('TEST: Elements found:', {
+                mobileToggle: !!mobileToggle,
+                navigation: !!navigation,
+                navBackdrop: !!navBackdrop,
+                navToggleTab: !!navToggleTab,
+                main: !!main
+            });
+            
+            if (mobileToggle) {
+                mobileToggle.addEventListener('click', function() {
+                    console.log('TEST: Mobile toggle clicked');
+                    navigation.classList.toggle('mobile-open');
+                    navBackdrop.classList.toggle('show');
+                });
+            }
+            
+            if (navToggleTab) {
+                navToggleTab.addEventListener('click', function() {
+                    console.log('TEST: Desktop toggle clicked');
+                    navigation.classList.toggle('closed');
+                    main.classList.toggle('sidebar-closed', navigation.classList.contains('closed'));
+                    navToggleTab.querySelector('span').textContent = navigation.classList.contains('closed') ? '>' : '<';
+                });
+            }
+            
+            // Test database header
+            const dbHeader = document.querySelector('.db-header');
+            if (dbHeader) {
+                dbHeader.addEventListener('click', function(e) {
+                    e.preventDefault();
+                    console.log('TEST: Database header clicked');
+                    
+                    const dbItem = this.closest('.db-item');
+                    const toggleIcon = this.querySelector('.toggle-icon');
+                    const tablesContainer = dbItem.querySelector('.tables');
+                    
+                    if (dbItem.classList.contains('expanded')) {
+                        console.log('TEST: Collapsing database');
+                        tablesContainer.style.maxHeight = '0px';
+                        dbItem.classList.remove('expanded');
+                        toggleIcon.classList.remove('fa-minus');
+                        toggleIcon.classList.add('fa-plus');
+                    } else {
+                        console.log('TEST: Expanding database');
+                        dbItem.classList.add('expanded');
+                        toggleIcon.classList.remove('fa-plus');
+                        toggleIcon.classList.add('fa-minus');
+                        tablesContainer.innerHTML = '<div style="padding: 10px;">Test table content</div>';
+                        tablesContainer.style.maxHeight = '200px';
+                    }
+                });
+            }
+        });
+    </script>
+</body>
+</html>

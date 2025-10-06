@@ -3,6 +3,7 @@ require_once 'config.php';
 require_once 'includes/functions.php';
 
 $error = '';
+$success_message = isset($_GET['message']) ? sanitize($_GET['message']) : '';
 
 if ($_POST) {
     if (!csrf_verify()) { http_response_code(400); exit('Invalid CSRF token'); }
@@ -39,6 +40,10 @@ if ($_POST) {
     <div class="login-container">
         <div class="login-card card">
             <h2 style="text-align: center; margin-bottom: 32px; color: var(--primary-color);">Hosting Control Panel</h2>
+            
+            <?php if ($success_message): ?>
+                <div class="alert alert-success"><?= $success_message ?></div>
+            <?php endif; ?>
             
             <?php if ($error): ?>
                 <div class="alert alert-error"><?= $error ?></div>

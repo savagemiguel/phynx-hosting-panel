@@ -1,7 +1,7 @@
 <?php
 require_once '../config.php';
 require_once '../includes/functions.php';
-requireAdmin();
+requireAdmin(true);
 
 $message = '';
 $edit_package = null;

@@ -1,0 +1,30 @@
+# Database Setup Instructions
+
+If you want to use the 'phynx_user' database user, you'll need to create it first.
+Run these SQL commands in MySQL:
+
+```sql
+-- Connect to MySQL as root
+CREATE USER 'phynx_user'@'localhost' IDENTIFIED BY 'mfKxAYaHnx4vmmIYbBLi';
+
+-- Grant necessary privileges  
+GRANT ALL PRIVILEGES ON *.* TO 'phynx_user'@'localhost' WITH GRANT OPTION;
+
+-- Apply the changes
+FLUSH PRIVILEGES;
+```
+
+Then update config.php to use these credentials:
+
+```php
+self::$config['Server'][++$s] = [
+    'host' => 'localhost',
+    'name' => 'Phynx Manager',
+    'port' => 3306,
+    'user' => 'phynx_user',
+    'pass' => 'mfKxAYaHnx4vmmIYbBLi',
+    'db_name' => null,
+    'db_user' => 'phynx_user',
+    'db_pass' => 'mfKxAYaHnx4vmmIYbBLi'
+];
+```

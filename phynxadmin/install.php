@@ -136,6 +136,79 @@ EOT;
     }
 }
 
+// Handle AJAX for fixing file permissions
+if (isset($_GET['fix_permissions']) && $_SERVER['REQUEST_METHOD'] === 'POST') {
+    header('Content-Type: application/json');
+    
+    $success = false;
+    $message = '';
+    $details = [];
+    
+    try {
+        // Attempt to fix permissions
+        $currentDir = getcwd();
+        $details[] = "Current directory: $currentDir";
+        
+        // Check current permissions
+        $perms = fileperms('.');
+        $details[] = "Current permissions: " . substr(sprintf('%o', $perms), -4);
+        
+        // Try different methods to fix permissions
+        if (!is_writable('.')) {
+            // Method 1: Try chmod 755
+            if (@chmod('.', 0755)) {
+                $details[] = "Applied chmod 755 to current directory";
+                if (is_writable('.')) {
+                    $success = true;
+                    $message = "Directory permissions fixed successfully using chmod 755";
+                }
+            }
+            
+            // Method 2: Try chmod 777 if 755 didn't work
+            if (!$success && @chmod('.', 0777)) {
+                $details[] = "Applied chmod 777 to current directory";
+                if (is_writable('.')) {
+                    $success = true;
+                    $message = "Directory permissions fixed successfully using chmod 777";
+                }
+            }
+            
+            // Method 3: Create a test file to verify
+            if (!$success) {
+                $testFile = 'test_write_' . time() . '.tmp';
+                if (@file_put_contents($testFile, 'test')) {
+                    @unlink($testFile);
+                    $success = true;
+                    $message = "Write permissions are actually working - false positive detected";
+                } else {
+                    $details[] = "Cannot create test file: $testFile";
+                }
+            }
+        } else {
+            $success = true;
+            $message = "Directory is already writable";
+        }
+        
+        if (!$success) {
+            $message = "Could not automatically fix permissions. Please set directory permissions manually.";
+            $details[] = "Manual fix: Run 'chmod 755 " . $currentDir . "' or contact your hosting provider";
+            $details[] = "Web server user needs write access to: " . $currentDir;
+        }
+        
+    } catch (Exception $e) {
+        $message = "Error while fixing permissions: " . $e->getMessage();
+        $details[] = $e->getTraceAsString();
+    }
+    
+    echo json_encode([
+        'success' => $success,
+        'message' => $message,
+        'details' => $details,
+        'writable' => is_writable('.')
+    ]);
+    exit;
+}
+
 // Handle AJAX for step 3
 if ($current_step == 3 && isset($_POST['test_connection'])) {
     header('Content-Type: application/json');
@@ -279,8 +352,14 @@ function checkRequirements() {
                             <?php
                             $requirements = checkRequirements();
                             $all_passed = true;
+                            $has_write_permission_issue = false;
                             foreach ($requirements as $req => $passed):
-                                if (!$passed) $all_passed = false;
+                                if (!$passed) {
+                                    $all_passed = false;
+                                    if ($req === 'File Write Permission') {
+                                        $has_write_permission_issue = true;
+                                    }
+                                }
                             ?>
                                 <div class="requirement-item <?= $passed ? 'pass' : 'fail' ?>">
                                     <div class="req-icon">
@@ -289,10 +368,28 @@ function checkRequirements() {
                                     <div class="req-info">
                                         <div class="req-name"><?= $req ?></div>
                                         <div class="req-status"><?= $passed ? 'Available' : 'Missing' ?></div>
+                                        <?php if (!$passed && $req === 'File Write Permission'): ?>
+                                            <div class="req-help">
+                                                <small>Directory needs write permissions for installation</small>
+                                            </div>
+                                        <?php endif; ?>
                                     </div>
                                 </div>
                             <?php endforeach; ?>
                         </div>
+
+                        <?php if ($has_write_permission_issue): ?>
+                        <div class="permission-fix-section" style="margin: 24px 0;">
+                            <div class="info-message">
+                                <i class="fas fa-info-circle"></i>
+                                <div>
+                                    <strong>Permission Issue Detected:</strong> The installer needs write access to create configuration files. 
+                                    Try the automatic fix below, or contact your hosting provider.
+                                </div>
+                            </div>
+                            <div id="permissionFixResult" style="margin-top: 16px; display: none;"></div>
+                        </div>
+                        <?php endif; ?>
                         
                         <div class="action-buttons">
                             <?php if ($all_passed): ?>
@@ -303,6 +400,11 @@ function checkRequirements() {
                                 <a href="install.php?step=2" class="btn btn-secondary">
                                     <i class="fas fa-refresh"></i> Recheck Requirements
                                 </a>
+                                <?php if ($has_write_permission_issue): ?>
+                                    <button id="fixPermissionsBtn" class="btn btn-warning">
+                                        <i class="fas fa-wrench"></i> Fix Write Permissions
+                                    </button>
+                                <?php endif; ?>
                             <?php endif; ?>
                         </div>
                     </div>
@@ -720,6 +822,76 @@ function checkRequirements() {
                     submitBtn.innerHTML = '<i class="fas fa-bolt"></i> Test Connection';
                     submitBtn.disabled = false;
                 }
+            });
+        }
+
+        // Fix Permissions Handler
+        const fixPermissionsBtn = document.getElementById('fixPermissionsBtn');
+        if (fixPermissionsBtn) {
+            fixPermissionsBtn.addEventListener('click', function() {
+                const btn = this;
+                const resultDiv = document.getElementById('permissionFixResult');
+                
+                // Show loading state
+                btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Fixing Permissions...';
+                btn.disabled = true;
+                
+                // Clear previous results
+                resultDiv.style.display = 'none';
+                resultDiv.innerHTML = '';
+                
+                fetch('install.php?fix_permissions=1', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' }
+                })
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error(`Server responded with status: ${response.status}`);
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    let resultClass = data.success ? 'success-message' : 'error-message';
+                    let icon = data.success ? 'fas fa-check-circle' : 'fas fa-exclamation-triangle';
+                    
+                    let detailsHtml = '';
+                    if (data.details && data.details.length > 0) {
+                        detailsHtml = '<div class="permission-details" style="margin-top: 12px; font-size: 12px; opacity: 0.8;"><strong>Details:</strong><ul>';
+                        data.details.forEach(detail => {
+                            detailsHtml += `<li>${detail}</li>`;
+                        });
+                        detailsHtml += '</ul></div>';
+                    }
+                    
+                    resultDiv.innerHTML = `
+                        <div class="${resultClass}" style="padding: 12px; border-radius: 8px;">
+                            <i class="${icon}"></i> ${data.message}
+                            ${detailsHtml}
+                        </div>
+                    `;
+                    resultDiv.style.display = 'block';
+                    
+                    // If successful, automatically recheck requirements after a short delay
+                    if (data.success) {
+                        setTimeout(() => {
+                            window.location.href = 'install.php?step=2';
+                        }, 2000);
+                    }
+                })
+                .catch(error => {
+                    resultDiv.innerHTML = `
+                        <div class="error-message" style="padding: 12px; border-radius: 8px;">
+                            <i class="fas fa-exclamation-triangle"></i> 
+                            Failed to fix permissions: ${error.message}
+                        </div>
+                    `;
+                    resultDiv.style.display = 'block';
+                })
+                .finally(() => {
+                    // Reset button state
+                    btn.innerHTML = '<i class="fas fa-wrench"></i> Fix Write Permissions';
+                    btn.disabled = false;
+                });
             });
         }
     </script>

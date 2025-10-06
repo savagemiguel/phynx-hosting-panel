@@ -7,8 +7,27 @@
 <body>
 
 <?php
-// Create connection
-$conn = new mysqli("localhost", "root", "", "mysql");
+// Get server configuration  
+require_once __DIR__.'/config.php';
+
+// Get selected server from session or use default
+$server_id = $_SESSION['server_id'] ?? Config::get('DefaultServer');
+$server_config = Config::getServer($server_id);
+
+if (!$server_config) {
+    // Fallback to default server
+    $server_id = Config::get('DefaultServer');
+    $server_config = Config::getServer($server_id);
+}
+
+// Connection parameters
+$host = $server_config['host'];
+$username = $_SESSION['db_user'] ?? $server_config['user'];
+$password = $_SESSION['db_pass'] ?? $server_config['pass'];
+$port = $server_config['port'];
+
+// Create connection to mysql database for privileges
+$conn = new mysqli($host, $username, $password, "mysql", $port);
 
 // Check connection
 if ($conn->connect_error) {

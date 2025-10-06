@@ -1,12 +1,23 @@
 // @ts-nocheck
-const navToggle = document.getElementById('mobileNavToggle');
-const navBackdrop = document.getElementById('mobileNavBackdrop');
-const navigation = document.getElementById('navigation');
-const navToggleTab = document.getElementById('navToggleTab');
-const main = document.getElementById('main');
-const html = document.documentElement;
-
 document.addEventListener("DOMContentLoaded", function () {
+	console.log("PhynxAdmin: DOM Content Loaded");
+	
+	// Get DOM elements after DOM is loaded
+	const navToggle = document.getElementById('mobileNavToggle');
+	const navBackdrop = document.getElementById('mobileNavBackdrop');
+	const navigation = document.getElementById('navigation');
+	const navToggleTab = document.getElementById('navToggleTab');
+	const main = document.getElementById('main');
+	const html = document.documentElement;
+	
+	console.log("PhynxAdmin: Elements found:", {
+		navToggle: !!navToggle,
+		navBackdrop: !!navBackdrop,
+		navigation: !!navigation,
+		navToggleTab: !!navToggleTab,
+		main: !!main
+	});
+	
 	// Auto-resize SQL textarea
 	const textareas = document.querySelectorAll("textarea");
 	textareas.forEach((textarea) => {
@@ -41,9 +52,13 @@ document.addEventListener("DOMContentLoaded", function () {
 	});
 
 	// Handle database tree toggle
-	document.querySelectorAll('.db-header').forEach((header) => {
+	const dbHeaders = document.querySelectorAll('.db-header');
+	console.log("PhynxAdmin: Found", dbHeaders.length, "database headers");
+	
+	dbHeaders.forEach((header) => {
 		header.addEventListener('click', function (e) {
 			e.preventDefault();
+			console.log("PhynxAdmin: Database header clicked:", this.getAttribute('data-db'));
 
 			const dbItem = this.closest('.db-item');
 			const toggleIcon = this.querySelector('.toggle-icon');
@@ -75,14 +90,19 @@ document.addEventListener("DOMContentLoaded", function () {
 				
 
 				// AJAX request to get tables
+				console.log("PhynxAdmin: Loading tables for database:", dbName);
 				tablesContainer.innerHTML = '<div class="loading">Loading...</div>';
 				fetch('get_tables.php', {
 					method: 'POST',
 					headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
 					body: 'db=' + encodeURIComponent(dbName)
 				})
-				.then(response => response.json())
+				.then(response => {
+					console.log("PhynxAdmin: Got response from get_tables.php");
+					return response.json();
+				})
 				.then(tables => {
+					console.log("PhynxAdmin: Tables received:", tables);
 					let tableLinks = '';
 
 					// Add "View Database" link first
@@ -103,8 +123,10 @@ document.addEventListener("DOMContentLoaded", function () {
 					
 					// Set maxHeight after content is loaded
 					tablesContainer.style.maxHeight = tablesContainer.scrollHeight + "px";
+					console.log("PhynxAdmin: Tables container height set to:", tablesContainer.scrollHeight + "px");
 				})
-				.catch(() => {
+				.catch((error) => {
+					console.error("PhynxAdmin: Error loading tables:", error);
 					tablesContainer.innerHTML = '<div class="error">ERROR loading tables.</div>';
 					tablesContainer.style.maxHeight = tablesContainer.scrollHeight + "px";
 				});
@@ -118,12 +140,18 @@ document.addEventListener("DOMContentLoaded", function () {
 	});
 
 	// Initialize Navbar Hide Tab
-	navToggle.addEventListener('click', function() {
-		navigation.classList.add('mobile-open');
-		navBackdrop.classList.add('show');
-		html.classList.add('no-scroll');
-		document.body.classList.add('mobile-nav-active');
-	});
+	if (navToggle) {
+		console.log("PhynxAdmin: Mobile nav toggle found");
+		navToggle.addEventListener('click', function() {
+			console.log("PhynxAdmin: Mobile nav toggle clicked");
+			navigation.classList.add('mobile-open');
+			navBackdrop.classList.add('show');
+			html.classList.add('no-scroll');
+			document.body.classList.add('mobile-nav-active');
+		});
+	} else {
+		console.log("PhynxAdmin: Mobile nav toggle NOT found");
+	}
 
 	navBackdrop.addEventListener('click', function() {
 		navigation.classList.remove('mobile-open');
@@ -149,12 +177,19 @@ document.addEventListener("DOMContentLoaded", function () {
 	}
 
 	if (navToggleTab && navigation && main) {
+		console.log("PhynxAdmin: Desktop nav toggle elements found");
 		navToggleTab.addEventListener('click', function() {
+			console.log("PhynxAdmin: Desktop nav toggle clicked");
 			navigation.classList.toggle('closed');
 			main.classList.toggle('sidebar-closed', navigation.classList.contains('closed'));
 			navToggleTab.querySelector('span').textContent = navigation.classList.contains('closed') ? '>' : '<';
 		});
-	
+	} else {
+		console.log("PhynxAdmin: Desktop nav toggle elements missing:", {
+			navToggleTab: !!navToggleTab,
+			navigation: !!navigation,
+			main: !!main
+		});
 	}
 
 	// Start polling for system stats if the elements are on the page

@@ -1,6 +1,18 @@
 <?php
+// Configure session for cross-site usage
+ini_set('session.cookie_samesite', 'None');
+ini_set('session.cookie_secure', '1'); // Only if using HTTPS
+ini_set('session.cookie_httponly', '1');
+
 // Start a session
 session_start();
+
+
+// Cross-site cookie policy headers
+header("Access-Control-Allow-Credentials: true");
+header("Access-Control-Allow-Origin: " . (isset($_SERVER['HTTP_ORIGIN']) ? $_SERVER['HTTP_ORIGIN'] : '*'));
+header("Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS");
+header("Access-Control-Allow-Headers: Content-Type, Authorization, X-Requested-With");
 
 // --- Installation Check ---
 // If the config file doesn't exist, the application hasn't been installed yet.
@@ -19,9 +31,10 @@ $server_config = Config::get('Server')[$current_server];
 
 // Use config servers credentials, fallback to session if not specified
 $host = $server_config['host'] ?? 'localhost';
-$user = $server_config['user'] ?? $_SESSION['db_user'];
-$pass = $server_config['pass'] ?? $_SESSION['db_pass'];
+$user = $_SESSION['db_user'] ?? $server_config['user'];
+$pass = $_SESSION['db_pass'] ?? $server_config['pass'];
 $port = $server_config['port'] ?? 3306;
+$db_name = $server_config['db_name'];
 
 // Check if user is logged in
 if (!isset($_SESSION['db_user']) || !isset($_SESSION['logged_in']) || $_SESSION['logged_in'] !== true) {
@@ -30,7 +43,7 @@ if (!isset($_SESSION['db_user']) || !isset($_SESSION['logged_in']) || $_SESSION[
 }
 
 // Connect using config server settings
-$conn = new mysqli($host, $user, $pass, '', $port);
+$conn = new mysqli($host, $user, $pass, $db_name, $port);
 if ($conn->connect_error) {
     die("Connection failed to {$server_config['host']}: " . $conn->connect_error);
 }
@@ -68,7 +81,7 @@ if ($selected_db) {
 -->
 <head>
     <title>P H Y N X Admin</title>
-    <link rel="stylesheet" href="includes/css/fa/all.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/all.min.css">
     <link rel="stylesheet" href="includes/css/styles.css">
     <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><path fill='%23f57c00' d='M8 0C3.6 0 0 3.6 0 8s3.6 8 8 8 8-3.6 8-8-3.6-8-8-8zm0 14c-3.3 0-6-2.7-6-6s2.7-6 6-6 6 2.7 6 6-2.7 6-6 6z'/></svg>">
     <meta charset="UTF-8">
@@ -212,6 +225,166 @@ if ($selected_db) {
             <?php endif; ?>
         </div>
     </div>    
-    <script src="includes/js/script.js"></script>
+    <script>
+        console.log('PhynxAdmin: Starting navigation initialization');
+        
+        document.addEventListener('DOMContentLoaded', function() {
+            console.log('PhynxAdmin: DOM loaded, initializing navigation');
+            
+            const mobileToggle = document.getElementById('mobileNavToggle');
+            const navigation = document.getElementById('navigation');
+            const navBackdrop = document.getElementById('mobileNavBackdrop');
+            const navToggleTab = document.getElementById('navToggleTab');
+            const main = document.getElementById('main');
+            
+            console.log('PhynxAdmin: Elements found:', {
+                mobileToggle: !!mobileToggle,
+                navigation: !!navigation,
+                navBackdrop: !!navBackdrop,
+                navToggleTab: !!navToggleTab,
+                main: !!main
+            });
+            
+            // Mobile navigation toggle
+            if (mobileToggle) {
+                mobileToggle.addEventListener('click', function() {
+                    console.log('PhynxAdmin: Mobile nav clicked');
+                    navigation.classList.toggle('mobile-open');
+                    navBackdrop.classList.toggle('show');
+                    document.body.classList.toggle('mobile-nav-active');
+                    document.documentElement.classList.toggle('no-scroll');
+                });
+            }
+            
+            // Mobile nav backdrop click to close
+            if (navBackdrop) {
+                navBackdrop.addEventListener('click', function() {
+                    console.log('PhynxAdmin: Nav backdrop clicked');
+                    navigation.classList.remove('mobile-open');
+                    navBackdrop.classList.remove('show');
+                    document.body.classList.remove('mobile-nav-active');
+                    document.documentElement.classList.remove('no-scroll');
+                });
+            }
+            
+            // Desktop navigation toggle
+            if (navToggleTab) {
+                navToggleTab.addEventListener('click', function() {
+                    console.log('PhynxAdmin: Desktop nav toggle clicked');
+                    navigation.classList.toggle('closed');
+                    main.classList.toggle('sidebar-closed', navigation.classList.contains('closed'));
+                    navToggleTab.querySelector('span').textContent = navigation.classList.contains('closed') ? '>' : '<';
+                });
+            }
+            
+            // Database tree functionality
+            const dbHeaders = document.querySelectorAll('.db-header');
+            console.log('PhynxAdmin: Found', dbHeaders.length, 'database headers');
+            
+            // Add click debugging for all db headers
+            dbHeaders.forEach(function(header, index) {
+                console.log('PhynxAdmin: Setting up header', index, '- data-db:', header.getAttribute('data-db'));
+                
+                header.addEventListener('click', function(e) {
+                    e.preventDefault();
+                    const dbName = this.getAttribute('data-db');
+                    console.log('PhynxAdmin: Database clicked:', dbName);
+                    console.log('PhynxAdmin: Event target:', e.target);
+                    console.log('PhynxAdmin: This element:', this);
+                    
+                    const dbItem = this.closest('.db-item');
+                    const toggleIcon = this.querySelector('.toggle-icon');
+                    const tablesContainer = dbItem.querySelector('.tables');
+                    
+                    if (dbItem.classList.contains('expanded')) {
+                        // Collapse
+                        console.log('PhynxAdmin: Collapsing database');
+                        tablesContainer.style.maxHeight = '0px';
+                        dbItem.classList.remove('expanded');
+                        toggleIcon.classList.remove('fa-minus');
+                        toggleIcon.classList.add('fa-plus');
+                        
+                        setTimeout(function() {
+                            tablesContainer.innerHTML = '';
+                        }, 300);
+                    } else {
+                        // Expand
+                        console.log('PhynxAdmin: Expanding database');
+                        dbItem.classList.add('expanded');
+                        toggleIcon.classList.remove('fa-plus');
+                        toggleIcon.classList.add('fa-minus');
+                        
+                        // Load tables via AJAX
+                        tablesContainer.innerHTML = '<div style="padding: 12px; color: var(--text-secondary);"><i class="fas fa-spinner fa-spin"></i> Loading tables...</div>';
+                        
+                        fetch('get_tables.php', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                            body: 'db=' + encodeURIComponent(dbName)
+                        })
+                        .then(response => {
+                            console.log('PhynxAdmin: Got response from get_tables.php');
+                            return response.json();
+                        })
+                        .then(tables => {
+                            console.log('PhynxAdmin: Tables received:', tables);
+                            let tableLinks = '';
+
+                            // Add "View Database" link first
+                            tableLinks += `<a href="?db=${encodeURIComponent(dbName)}" class="table-link">
+                                <i class="fas fa-database table-icon"></i> View Database
+                            </a>`;
+
+                            // Add individual table links
+                            if (tables.length) {
+                                tableLinks += tables.map(table =>
+                                    `<a href="?db=${encodeURIComponent(dbName)}&table=${encodeURIComponent(table)}" class="table-link">
+                                        <i class="fas fa-table table-icon"></i> ${table}
+                                    </a>`
+                                ).join('');
+                            } else {
+                                tableLinks += '<div style="padding: 12px; color: var(--text-muted);">No tables found</div>';
+                            }
+
+                            tablesContainer.innerHTML = tableLinks;
+                            tablesContainer.style.maxHeight = tablesContainer.scrollHeight + "px";
+                        })
+                        .catch((error) => {
+                            console.error('PhynxAdmin: Error loading tables:', error);
+                            tablesContainer.innerHTML = '<div style="padding: 12px; color: var(--error-color);">Error loading tables</div>';
+                            tablesContainer.style.maxHeight = '50px';
+                        });
+                    }
+                });
+            });
+            
+            console.log('PhynxAdmin: Navigation initialization complete');
+        });
+        
+        // Additional debugging - test if elements exist after page load
+        window.addEventListener('load', function() {
+            console.log('PhynxAdmin: Window loaded - running additional checks');
+            
+            const dbHeaders = document.querySelectorAll('.db-header');
+            console.log('PhynxAdmin: Post-load db headers found:', dbHeaders.length);
+            
+            dbHeaders.forEach(function(header, i) {
+                console.log(`PhynxAdmin: Header ${i}:`, {
+                    element: header,
+                    dataDb: header.getAttribute('data-db'),
+                    href: header.href,
+                    clickable: header.style.pointerEvents !== 'none'
+                });
+            });
+            
+            // Test clicking first database if exists
+            if (dbHeaders.length > 0) {
+                console.log('PhynxAdmin: Adding manual test click handler to first database');
+                const firstDb = dbHeaders[0];
+                firstDb.style.border = '2px solid red'; // Visual indicator
+                firstDb.title = 'Test: Click me to expand database';
+            }
+        });
+    </script>
 </body>
 </html>

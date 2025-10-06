@@ -1,19 +1,11 @@
 <?php
 // Ensure proper path resolution
 $basePath = dirname(__DIR__);
-require_once $basePath . '/config.php';
-require_once $basePath . '/includes/functions.php';
+require_once '../config.php';
+require_once '../includes/functions.php';
 
-// Add error reporting for debugging
-error_reporting(E_ALL);
-ini_set('display_errors', 1);
-
-// Debug output to confirm PHP is working
-if (!function_exists('isLoggedIn')) {
-    die('Error: Functions not loaded properly. Check includes/functions.php');
-}
-
-requireAdmin();
+// Check if user is logged in and is admin
+requireAdmin(true);
 
 // Handle AJAX requests for live updates
 if (isset($_GET['ajax'])) {

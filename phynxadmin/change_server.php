@@ -1,13 +1,14 @@
 <?php
 // Start the session
 session_start();
-include_once 'config.php';
+require_once 'config.php';
 
 if (isset($_POST['server_id'])) {
     $server_id = (int)$_POST['server_id'];
-
-    if (isset($config['Server'][$server_id])) {
-        $server = $config['Server'][$server_id];
+    
+    $servers = Config::get('Server');
+    if (isset($servers[$server_id])) {
+        $server = $servers[$server_id];
 
         // Update session with server credentials
         $_SESSION['current_server'] = $server_id;

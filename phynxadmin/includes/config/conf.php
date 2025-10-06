@@ -1,5 +1,5 @@
 <?php
-// Get server configuration
+// Get server configuration  
 require_once __DIR__.'/../../config.php';
 
 // Get selected server from session or use default
@@ -17,12 +17,11 @@ $host = $server_config['host'];
 $username = $_SESSION['db_user'] ?? $server_config['user'];
 $password = $_SESSION['db_pass'] ?? $server_config['pass'];
 $port = $server_config['port'];
-$db_name = 'mysql'; // Don't connect to a specific database initially
+$db_name = $server_config['db_name'] ?? null; // Don't connect to a specific database initially
 
-const DB_HOST = 'localhost';
-const DB_USERNAME = 'root';
-const DB_PASSWORD = '';
-const DB_NAME = '';
+define("DB_HOST", $host);
+define("DB_USERNAME", $server_config['db_user'] ?? $server_config['user']);
+define("DB_PASSWORD", $server_config['db_pass'] ?? $server_config['pass']);
 
 // Connect to the selected server
 $conn = new mysqli($host, $username, $password, null, $port);
