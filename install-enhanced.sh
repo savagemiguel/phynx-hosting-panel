@@ -798,7 +798,7 @@ validate_dependencies() {
     # Check if packages are available
     local packages_to_check=(
         "apache2" "nginx" "mysql-server" "php8.3" "php8.4"
-        "ufw" "fail2ban" "certbot" "bind9" "git" "curl" "wget" "unzip"
+        "ufw" "fail2ban" "certbot" "bind9" "git" "curl" "wget" "unzip" "vsftpd"
     )
     
     local unavailable_packages=()
@@ -2159,7 +2159,7 @@ show_spinner() {
     printf "\r${GREEN}[✓]${NC} %s\n" "$message"
 }
 
-# Installation completion celebration
+# Installation completion celebration with full access information
 show_completion_celebration() {
     clear
     echo -e "${GREEN}"
@@ -2175,6 +2175,97 @@ show_completion_celebration() {
     local total_time=$(($(date +%s) - INSTALLATION_STATS[start_time]))
     echo -e "${CYAN}Installation completed in: ${GREEN}$(printf "%02d:%02d" $((total_time / 60)) $((total_time % 60)))${NC}"
     echo ""
+    
+    # Show comprehensive access information
+    echo -e "${YELLOW}╔════════════════════════════════════════════════════════════════════════════════╗${NC}"
+    echo -e "${YELLOW}║                             🌐 ACCESS INFORMATION                              ║${NC}"
+    echo -e "${YELLOW}╚════════════════════════════════════════════════════════════════════════════════╝${NC}"
+    echo ""
+    
+    # Main Website Access
+    echo -e "${CYAN}🏠 Main Website Access:${NC}"
+    echo -e "   • ${GREEN}HTTP${NC}:  http://$MAIN_DOMAIN"
+    echo -e "   • ${GREEN}HTTPS${NC}: https://$MAIN_DOMAIN"
+    echo -e "   • ${GREEN}IP${NC}:    http://$SERVER_IP"
+    echo ""
+    
+    # Admin Panel Access
+    echo -e "${CYAN}⚙️  Admin Panel Access:${NC}"
+    echo -e "   • ${GREEN}Standard${NC}: http://$MAIN_DOMAIN/admin"
+    echo -e "   • ${GREEN}Panel${NC}:    http://$MAIN_DOMAIN/panel" 
+    echo -e "   • ${GREEN}Port HTTP${NC}:  http://$MAIN_DOMAIN:$SECURE_PORT"
+    echo -e "   • ${GREEN}Port HTTPS${NC}: https://$MAIN_DOMAIN:$SECURE_SSL_PORT"
+    echo -e "   • ${GREEN}WWW HTTP${NC}:   http://www.$MAIN_DOMAIN:$SECURE_PORT"
+    echo -e "   • ${GREEN}WWW HTTPS${NC}:  https://www.$MAIN_DOMAIN:$SECURE_SSL_PORT"
+    echo -e "   • ${GREEN}IP HTTP${NC}:    http://$SERVER_IP:$SECURE_PORT"
+    echo -e "   • ${GREEN}IP HTTPS${NC}:   https://$SERVER_IP:$SECURE_SSL_PORT"
+    echo ""
+    
+    # Database Manager Access
+    if [[ -d "$PMA_DIR" ]]; then
+        echo -e "${CYAN}🗄️  Database Manager (PhynxAdmin):${NC}"
+        echo -e "   • ${GREEN}Directory${NC}: http://$MAIN_DOMAIN/phynxadmin"
+        echo -e "   • ${GREEN}Subdomain${NC}: http://phynxadmin.$MAIN_DOMAIN"
+        echo ""
+    fi
+    
+    # System Credentials
+    echo -e "${CYAN}🔐 Default Credentials:${NC}"
+    echo -e "   • ${YELLOW}Admin Panel${NC}:"
+    echo -e "     Username: ${GREEN}admin${NC}"
+    echo -e "     Password: ${GREEN}admin123${NC} ${RED}(CHANGE IMMEDIATELY!)${NC}"
+    echo ""
+    echo -e "   • ${YELLOW}Database Root${NC}:"
+    echo -e "     Username: ${GREEN}root${NC}"
+    if [[ -f "/root/.phynx_credentials" ]]; then
+        source /root/.phynx_credentials 2>/dev/null
+        echo -e "     Password: ${GREEN}$DB_ROOT_PASS${NC}"
+    else
+        echo -e "     Password: ${GREEN}[Generated - check /root/.phynx_credentials]${NC}"
+    fi
+    echo ""
+    echo -e "   • ${YELLOW}Panel Database${NC}:"
+    echo -e "     Database: ${GREEN}$DB_NAME${NC}"
+    echo -e "     Username: ${GREEN}$DB_USER${NC}"
+    if [[ -f "/root/.phynx_credentials" ]]; then
+        echo -e "     Password: ${GREEN}$DB_PASS${NC}"
+    else
+        echo -e "     Password: ${GREEN}[Generated - check /root/.phynx_credentials]${NC}"
+    fi
+    echo ""
+    
+    # FTP Access (if configured)
+    if command -v vsftpd >/dev/null 2>&1; then
+        echo -e "   • ${YELLOW}FTP Access${NC}:"
+        echo -e "     Server: ${GREEN}$MAIN_DOMAIN${NC} or ${GREEN}$SERVER_IP${NC}"
+        echo -e "     Port: ${GREEN}21${NC}"
+        echo -e "     Username: ${GREEN}phynx_admin${NC}"
+        if [[ -f "/root/.phynx_credentials" ]]; then
+            echo -e "     Password: ${GREEN}$FTP_PASS${NC}"
+        else
+            echo -e "     Password: ${GREEN}[Check /root/.phynx_credentials]${NC}"
+        fi
+        echo ""
+    fi
+    
+    # File System Information
+    echo -e "${CYAN}📁 Important Directories:${NC}"
+    echo -e "   • ${YELLOW}Panel Files${NC}: $PANEL_DIR"
+    echo -e "   • ${YELLOW}Website Root${NC}: /var/www/$MAIN_DOMAIN/public_html"
+    echo -e "   • ${YELLOW}Logs${NC}: /var/log/phynx-install/"
+    echo -e "   • ${YELLOW}Credentials${NC}: /root/.phynx_credentials"
+    echo ""
+    
+    # Security Reminders
+    echo -e "${RED}🔒 SECURITY REMINDERS:${NC}"
+    echo -e "   1. ${RED}Change default admin password immediately!${NC}"
+    echo -e "   2. ${YELLOW}Review firewall settings${NC}"
+    echo -e "   3. ${YELLOW}Set up SSL certificates if not using Let's Encrypt${NC}"
+    echo -e "   4. ${YELLOW}Configure DNS records for your domain${NC}"
+    echo -e "   5. ${YELLOW}Review and secure database access${NC}"
+    echo ""
+    
+    echo -e "${GREEN}🎊 Phynx Hosting Panel installation completed successfully! 🎊${NC}"
 }
 
 # Function to check if running as root
@@ -2340,6 +2431,7 @@ install_core_packages() {
         "htop"
         "nano"
         "vim"
+        "vsftpd"
     )
     
     # Use our smart package installation system
@@ -2919,30 +3011,173 @@ troubleshoot_mysql() {
 install_panel_files() {
     log "Installing panel files to $PANEL_DIR..."
     
-    # Create panel directory
+    # Create panel directory and main website directory
     mkdir -p "$PANEL_DIR"
+    mkdir -p "/var/www/$MAIN_DOMAIN/public_html"
     
     # Check if we're running from panel directory
     if [[ -f "index.php" && -d "admin" ]]; then
         log "Copying panel files from current directory..."
         
-        # Copy all files except installer
+        # Copy all files except installer to the panel directory
         rsync -av --exclude='install-enhanced.sh' --exclude='.git' --exclude='*.log' . "$PANEL_DIR/"
+        
+        # Also create a symbolic link for admin access via main domain
+        log "Creating admin access symlinks..."
+        ln -sf "$PANEL_DIR" "/var/www/$MAIN_DOMAIN/public_html/admin" 2>/dev/null || true
+        ln -sf "$PANEL_DIR" "/var/www/$MAIN_DOMAIN/public_html/panel" 2>/dev/null || true
         
         # Create necessary directories
         mkdir -p "$PANEL_DIR"/{logs,uploads,tmp,backups}
+        mkdir -p "/var/www/$MAIN_DOMAIN/public_html"/{logs,uploads,tmp,backups}
+        
+        # Create a simple index page for the main website if it doesn't exist
+        if [[ ! -f "/var/www/$MAIN_DOMAIN/public_html/index.php" ]]; then
+            cat > "/var/www/$MAIN_DOMAIN/public_html/index.php" << 'WEBSITE_EOF'
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Welcome to Phynx Hosting Panel</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 0; padding: 50px; background: #f4f4f4; }
+        .container { max-width: 800px; margin: 0 auto; background: white; padding: 30px; border-radius: 10px; box-shadow: 0 0 20px rgba(0,0,0,0.1); }
+        h1 { color: #333; text-align: center; }
+        .links { margin: 30px 0; }
+        .links a { display: block; margin: 10px 0; padding: 15px; background: #007cba; color: white; text-decoration: none; border-radius: 5px; text-align: center; }
+        .links a:hover { background: #005a87; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🚀 Welcome to Phynx Hosting Panel</h1>
+        <p>Your hosting panel has been successfully installed!</p>
+        
+        <div class="links">
+            <a href="/admin">🔧 Admin Panel</a>
+            <a href="/panel">⚙️ Control Panel</a>
+            <a href="/phynxadmin">🗄️ Database Manager</a>
+        </div>
+        
+        <p><strong>Admin Panel Access:</strong></p>
+        <ul>
+            <li>HTTP: <a href="http://<?php echo $_SERVER['HTTP_HOST']; ?>:2083">Port 2083</a></li>
+            <li>HTTPS: <a href="https://<?php echo $_SERVER['HTTP_HOST']; ?>:2087">Port 2087</a></li>
+        </ul>
+        
+        <p><em>Server IP: <?php echo $_SERVER['SERVER_ADDR']; ?></em></p>
+    </div>
+</body>
+</html>
+WEBSITE_EOF
+        fi
         
         # Set proper ownership and permissions
         chown -R www-data:www-data "$PANEL_DIR"
+        chown -R www-data:www-data "/var/www/$MAIN_DOMAIN"
         find "$PANEL_DIR" -type d -exec chmod 755 {} \;
         find "$PANEL_DIR" -type f -exec chmod 644 {} \;
+        find "/var/www/$MAIN_DOMAIN" -type d -exec chmod 755 {} \;
+        find "/var/www/$MAIN_DOMAIN" -type f -exec chmod 644 {} \;
         
         # Make writable directories
         chmod 775 "$PANEL_DIR"/{logs,uploads,tmp,backups}
+        chmod 775 "/var/www/$MAIN_DOMAIN/public_html"/{logs,uploads,tmp,backups}
         
         ok "Panel files installed successfully"
+        log "Admin panel accessible at: /admin, /panel, :2083, :2087"
+        log "Main website: /var/www/$MAIN_DOMAIN/public_html"
+        log "Panel files: $PANEL_DIR"
     else
         die "Panel source files not found. Please run this script from the panel root directory."
+    fi
+}
+
+# Configure FTP Server and create admin user
+setup_ftp_server() {
+    log "Configuring FTP server (vsftpd)..."
+    
+    # Create FTP configuration
+    cat > /etc/vsftpd.conf << 'FTP_EOF'
+# Basic settings
+listen=NO
+listen_ipv6=YES
+anonymous_enable=NO
+local_enable=YES
+write_enable=YES
+local_umask=022
+dirmessage_enable=YES
+use_localtime=YES
+xferlog_enable=YES
+connect_from_port_20=YES
+chroot_local_user=YES
+allow_writeable_chroot=YES
+
+# Security settings
+secure_chroot_dir=/var/run/vsftpd/empty
+pam_service_name=vsftpd
+rsa_cert_file=/etc/ssl/certs/ssl-cert-snakeoil.pem
+rsa_private_key_file=/etc/ssl/private/ssl-cert-snakeoil.key
+ssl_enable=NO
+
+# User restrictions
+userlist_enable=YES
+userlist_file=/etc/vsftpd.userlist
+userlist_deny=NO
+
+# Passive mode settings
+pasv_enable=YES
+pasv_min_port=40000
+pasv_max_port=50000
+
+# Performance settings
+max_clients=50
+max_per_ip=5
+FTP_EOF
+    
+    # Create FTP admin user
+    local ftp_user="phynx_admin"
+    local ftp_pass=$(generate_password 16)
+    
+    # Store FTP credentials
+    echo "FTP_USER=$ftp_user" >> /root/.phynx_credentials
+    echo "FTP_PASS=$ftp_pass" >> /root/.phynx_credentials
+    
+    # Create user if it doesn't exist
+    if ! id "$ftp_user" &>/dev/null; then
+        useradd -m -d "/var/www/phynx" -s /bin/bash "$ftp_user"
+        echo "$ftp_user:$ftp_pass" | chpasswd
+        
+        # Set home directory to web root
+        usermod -d "/var/www/phynx" "$ftp_user"
+        
+        # Create user directory structure
+        mkdir -p "/var/www/phynx"
+        chown "$ftp_user:www-data" "/var/www/phynx"
+        chmod 755 "/var/www/phynx"
+        
+        # Give user access to web directories
+        usermod -a -G www-data "$ftp_user"
+    fi
+    
+    # Add user to allowed FTP users
+    echo "$ftp_user" > /etc/vsftpd.userlist
+    
+    # Open FTP ports in firewall
+    ufw allow 21/tcp >/dev/null 2>&1 || true
+    ufw allow 40000:50000/tcp >/dev/null 2>&1 || true
+    
+    # Enable and start vsftpd
+    systemctl enable vsftpd >/dev/null 2>&1
+    systemctl restart vsftpd >/dev/null 2>&1
+    
+    if systemctl is-active --quiet vsftpd; then
+        ok "FTP server configured successfully"
+        log "FTP User: $ftp_user"
+        log "FTP Password: $ftp_pass"
+    else
+        warn "FTP server configuration may have issues"
     fi
 }
 
@@ -3337,6 +3572,7 @@ configure_apache_http_vhost() {
     CustomLog \${APACHE_LOG_DIR}/${MAIN_DOMAIN}_access.log combined
 
     # Admin panel aliases
+    Alias /admin "$PANEL_DIR"
     Alias /panel "$PANEL_DIR"
     Alias /phynxadmin "$PMA_DIR"
 
@@ -3449,6 +3685,38 @@ configure_apache_http_vhost() {
         Require all denied
     </FilesMatch>
 </VirtualHost>
+
+# Admin panel HTTP - Port $SECURE_PORT (for phynx.one, www.phynx.one, and IP access)
+<VirtualHost *:$SECURE_PORT>
+    ServerName $MAIN_DOMAIN
+    ServerAlias www.$MAIN_DOMAIN
+    ServerAlias $SERVER_IP
+    DocumentRoot $PANEL_DIR
+    ErrorLog \${APACHE_LOG_DIR}/admin_panel_http_error.log
+    CustomLog \${APACHE_LOG_DIR}/admin_panel_http_access.log combined
+    
+    <Directory "$PANEL_DIR">
+        Options Indexes FollowSymLinks
+        AllowOverride All
+        Require all granted
+        IndexIgnore *
+        
+        <FilesMatch \\.php\$>
+            SetHandler "proxy:unix:/run/php/php8.4-fpm.sock|fcgi://localhost/"
+        </FilesMatch>
+    </Directory>
+    
+    # Security restrictions
+    <Files "config.php">
+        Require all denied
+    </Files>
+    <Files ".env">
+        Require all denied
+    </Files>
+    <FilesMatch "^\.">
+        Require all denied
+    </FilesMatch>
+</VirtualHost>
 EOF
 
     # Enable the site
@@ -3495,6 +3763,7 @@ configure_apache_ssl_vhost() {
     CustomLog \${APACHE_LOG_DIR}/${MAIN_DOMAIN}_ssl_access.log combined
 
     # Admin panel aliases
+    Alias /admin "$PANEL_DIR"
     Alias /panel "$PANEL_DIR"
     Alias /phynxadmin "$PMA_DIR"
 
@@ -5018,6 +5287,9 @@ install_phynx() {
     update_progress 85 "Configuring firewall and security"
     configure_firewall
     configure_fail2ban
+    
+    update_progress 86 "Setting up FTP server"
+    setup_ftp_server
     
     if [[ "$INSTALL_CSF" == "yes" ]]; then
         update_progress 87 "Installing CSF advanced firewall"
