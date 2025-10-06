@@ -39,13 +39,30 @@ $steps = [
 ];
 
 $current_step = $_GET['step'] ?? 1;
+$force_reinstall = isset($_GET['force']) && $_GET['force'] === 'true';
+
+// Handle fresh installation request
+if ($force_reinstall && file_exists('config.php')) {
+    // Backup existing config before deletion
+    $backup_name = 'config.backup.' . date('Y-m-d_H-i-s') . '.php';
+    @copy('config.php', $backup_name);
+    @unlink('config.php');
+    
+    // Clear session data for fresh start
+    session_destroy();
+    session_start();
+    
+    // Redirect to step 1 for fresh installation
+    header('Location: install.php?step=1');
+    exit;
+}
 
 // --- Post-Installation Security Check ---
 // If config.php already exists, it means the installation is complete.
 // We should redirect to the completion screen or block access if trying to re-install.
-if (file_exists('config.php') && !isset($_GET['installer_delete'])) {
+if (file_exists('config.php') && !isset($_GET['installer_delete']) && !$force_reinstall) {
     if ($current_step != 5) {
-        // Redirect to completion screen to allow installer removal
+        // Redirect to completion screen to allow installer removal or fresh install
         header('Location: install.php?step=5');
         exit;
     }
@@ -366,6 +383,13 @@ function checkRequirements() {
                         <h2>Installation Complete!</h2>
                         <p>PHYNX has been successfully installed and configured.</p>
                         
+                        <?php if (file_exists('config.php')): ?>
+                        <div class="info-message" style="margin: 15px 0; padding: 10px; background: var(--bg-secondary); border-radius: 5px; border-left: 4px solid var(--warning-color);">
+                            <i class="fas fa-info-circle"></i> 
+                            <strong>Installation already exists.</strong> If you want to start fresh, use the "Fresh Installation" button below.
+                        </div>
+                        <?php endif; ?>
+                        
                         <div class="completion-info">
                             <div class="info-item-install" id="db-check">
                                 <i class="fas fa-database"></i>
@@ -393,6 +417,9 @@ function checkRequirements() {
                             <button id="removeInstallerBtn" class="btn btn-danger">
                                 <i class="fas fa-trash"></i> Remove Installer
                             </button>
+                            <a href="install.php?force=true" class="btn btn-secondary" onclick="return confirm('This will delete the current configuration and start fresh. Are you sure?')">
+                                <i class="fas fa-redo"></i> Fresh Installation
+                            </a>
                         </div>
                     </div>
                 <?php endswitch; ?>
