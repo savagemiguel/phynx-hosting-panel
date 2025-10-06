@@ -2976,7 +2976,7 @@ deploy_custom_pma() {
         
         ok "Custom Phynx deployed at $PMA_DIR"
     else
-        warn "Custom Phynx directory 'phynx' not found. Skipping deployment."
+        warn "Custom Phynx directory 'phynxadmin' not found. Skipping deployment."
         INSTALL_PMA="no"
     fi
 }
